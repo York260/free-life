@@ -28,6 +28,8 @@ data class Draft(
     val askedStart: Boolean = false,
     val askedEnd: Boolean = false,
     val noEnd: Boolean = false,
+    val repeat: String = "",
+    val leadMin: Int = 0,
 )
 
 /** 不需要網路、不需要 AI 的中文日期時間解析(第一版)。 */
@@ -47,6 +49,18 @@ object ReminderParser {
     private val TIME_RE = Regex(
         "(凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜裡|半夜)?\\s*" +
             "(?:(\\d{1,2}):(\\d{2})|(\\d{1,2}|[零〇一二兩三四五六七八九十]{1,3})\\s*[點点](?:鐘|整)?(?:\\s*(半)|\\s*(\\d{1,2})\\s*分)?)"
+    )
+    private val WEEKDAYS_RE = Regex(
+        "(?:每(?:個)?)?(?:平日|工作日|(?:週|周|星期|禮拜)一\\s*(?:到|至|~|\\-)\\s*(?:週|周|星期|禮拜)?五)"
+    )
+    private val WEEKLY_RE = Regex("每(?:個)?(?:週|周|星期|禮拜)([一二三四五六日天])")
+    private val MONTHLY_RE = Regex("每(?:個)?月\\s*(\\d{1,2})\\s*(?:日|號|号)")
+    private val DAILY_RE = Regex("每天|每日")
+    private val LEAD_RE1 = Regex(
+        "(?:提前|提早)\\s*(半|\\d+|[一二兩三四五六七八九十]+)\\s*(?:個)?\\s*(分鐘|分|小時|鐘頭|天)(?:先)?(?:提醒我?|叫我|通知我?)?"
+    )
+    private val LEAD_RE2 = Regex(
+        "(半|\\d+|[一二兩三四五六七八九十]+)\\s*(?:個)?\\s*(分鐘|分|小時|鐘頭|天)前(?:先)?(?:提醒我?|叫我|通知我?)"
     )
     private val END_SEP_RE = Regex("\\s*(?:到|至|~|～|\\-|－|—|–)\\s*")
     private val DUR_RE = Regex("(一個半|半|\\d+|[一二兩三四五六七八九十]+)\\s*(?:個)?\\s*(小時|鐘頭|分鐘|分)")
@@ -144,6 +158,18 @@ object ReminderParser {
         return if (minutes > 0) minutes else null
     }
 
+    /** 「30分鐘」「半小時」「1天」轉成分鐘;不合理就回傳 null。 */
+    private fun leadMinutes(m: MatchResult): Int? {
+        val numText = m.groupValues[1]
+        val n: Double = if (numText == "半") 0.5 else (cnToInt(numText) ?: return null).toDouble()
+        val minutes = when (m.groupValues[2]) {
+            "分鐘", "分" -> n
+            "小時", "鐘頭" -> n * 60
+            else -> n * 1440
+        }.toInt()
+        return if (minutes > 0) minutes else null
+    }
+
     private fun cut(s: String, r: IntRange): String =
         s.substring(0, r.first) + " " + s.substring(r.last + 1)
 
@@ -159,12 +185,43 @@ object ReminderParser {
         var endAmbig = false
         var durationMin: Int? = null
         var relative = false
+        var repeat = ""
+        var leadMin = 0
 
         // 地點:@診所 或 地點診所
         val locMatch = LOCATION_RE.find(s)
         if (locMatch != null) {
             location = locMatch.groupValues[1]
             s = cut(s, locMatch.range)
+        }
+
+        // 重複:每天、平日、每週三、每月15號
+        val wkdays = WEEKDAYS_RE.find(s)
+        val weekly = WEEKLY_RE.find(s)
+        val monthly = MONTHLY_RE.find(s)
+        val daily = DAILY_RE.find(s)
+        if (wkdays != null) {
+            repeat = "weekdays"
+            s = cut(s, wkdays.range)
+        } else if (weekly != null) {
+            repeat = "weekly"
+            s = s.replaceRange(weekly.range, "週" + weekly.groupValues[1])
+        } else if (monthly != null) {
+            repeat = "monthly"
+            s = s.replaceRange(monthly.range, monthly.groupValues[1] + "號")
+        } else if (daily != null) {
+            repeat = "daily"
+            s = cut(s, daily.range)
+        }
+
+        // 提前提醒:提前30分鐘、1小時前提醒我
+        val lead = LEAD_RE1.find(s) ?: LEAD_RE2.find(s)
+        if (lead != null) {
+            val mins = leadMinutes(lead)
+            if (mins != null) {
+                leadMin = mins
+                s = cut(s, lead.range)
+            }
         }
 
         // 相對時間:10分鐘後、2小時後、3天後
@@ -350,6 +407,8 @@ object ReminderParser {
             endAmbig = endAmbig,
             durationMin = durationMin,
             relative = relative,
+            repeat = repeat,
+            leadMin = leadMin,
         )
     }
 }

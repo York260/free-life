@@ -88,6 +88,8 @@ object Assistant {
                             endAmbig = if (p.endTime != null) p.endAmbig else draft.endAmbig,
                             durationMin = p.durationMin ?: draft.durationMin,
                             relative = draft.relative || p.relative,
+                            repeat = p.repeat.ifEmpty { draft.repeat },
+                            leadMin = if (p.leadMin > 0) p.leadMin else draft.leadMin,
                         ),
                         now,
                     )
@@ -117,6 +119,8 @@ object Assistant {
                                 durationMin = p.durationMin,
                                 relative = p.relative,
                                 askedStart = true,
+                                repeat = p.repeat.ifEmpty { draft.repeat },
+                                leadMin = if (p.leadMin > 0) p.leadMin else draft.leadMin,
                                 // 小任務只有開始時間;除非這句話本身就說了結束時間
                                 noEnd = p.endTime == null && p.durationMin == null,
                             ),
@@ -232,19 +236,27 @@ object Assistant {
         }
 
         val date = d.date
-        val dt: LocalDateTime
+        var dt: LocalDateTime
         if (date == null) {
             // 只說了時間:今天還沒到就是今天,否則明天
             val todayAt = LocalDateTime.of(now.toLocalDate(), time)
             dt = if (todayAt.isAfter(now)) todayAt else todayAt.plusDays(1)
+            if (d.repeat == "weekdays") dt = Repeat.alignWeekday(dt)
         } else {
             dt = LocalDateTime.of(date, time)
             if (!dt.isAfter(now)) {
-                return Outcome.Ask(
-                    d.copy(time = null, needAmPm = false), Kind.TIME,
-                    "這個時間已經過了,請告訴我新的開始時間(例如「下午3點」)",
-                    TIME_CHIPS,
-                )
+                if (d.repeat.isNotEmpty()) {
+                    // 重複提醒:這次已經過了,就從下一次開始
+                    dt = Repeat.firstAfter(dt, d.repeat, now)
+                } else {
+                    return Outcome.Ask(
+                        d.copy(time = null, needAmPm = false), Kind.TIME,
+                        "這個時間已經過了,請告訴我新的開始時間(例如「下午3點」)",
+                        TIME_CHIPS,
+                    )
+                }
+            } else if (d.repeat == "weekdays") {
+                dt = Repeat.alignWeekday(dt)
             }
         }
 
@@ -254,19 +266,28 @@ object Assistant {
         }
 
         val startMs = dt.atZone(zone).toInstant().toEpochMilli()
+        val nowMs = now.atZone(zone).toInstant().toEpochMilli()
+        // 提前提醒:響鈴時間 = 開始 - 提前分鐘;如果提前的時間點已經過了,就改成開始時響
+        val leadOk = d.leadMin > 0 && startMs - d.leadMin * 60_000L > nowMs
+        val ringMs = if (leadOk) startMs - d.leadMin * 60_000L else startMs
+        val ringText = if (leadOk) "開始前 ${leadLabel(d.leadMin)}響鈴" else "開始時響鈴"
+        val rep = Repeat.label(d.repeat)
+        val repText = if (rep.isEmpty()) "" else "(重複:$rep)"
         val where = if (d.location.isBlank()) "" else " @${d.location}"
         if (end != null) {
             val endMs = end.atZone(zone).toInstant().toEpochMilli()
             val r = Reminder(
                 id = newId(), title = d.title, location = d.location,
-                triggerAt = startMs, startAt = startMs, endAt = endMs,
+                triggerAt = ringMs, startAt = startMs, endAt = endMs,
+                repeat = d.repeat, leadMin = d.leadMin,
             )
-            return Outcome.Done(r, "已設定排程:${formatRange(startMs, endMs)} ${d.title}$where(開始時響鈴)")
+            return Outcome.Done(r, "已設定排程$repText:${formatRange(startMs, endMs)} ${d.title}$where($ringText)")
         }
         val r = Reminder(
             id = newId(), title = d.title, location = d.location,
-            triggerAt = startMs, startAt = startMs,
+            triggerAt = ringMs, startAt = startMs,
+            repeat = d.repeat, leadMin = d.leadMin,
         )
-        return Outcome.Done(r, "已記下小任務:${formatTrigger(startMs)} ${d.title}$where(開始時響鈴)")
+        return Outcome.Done(r, "已記下小任務$repText:${formatTrigger(startMs)} ${d.title}$where($ringText)")
     }
 }

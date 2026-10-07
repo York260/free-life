@@ -76,6 +76,7 @@ object AlarmScheduler {
 
     /** 排程成功(或不需要排程)回傳 true;沒有權限等原因失敗時回傳 false,不會讓 App 當機。 */
     fun schedule(ctx: Context, r: Reminder): Boolean {
+        PreMeetingScheduler.schedule(ctx, r)
         val at = r.triggerAt ?: return true
         if (r.done || at <= System.currentTimeMillis()) return true
         return try {
@@ -95,10 +96,17 @@ object AlarmScheduler {
     fun cancel(ctx: Context, id: Long) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         am.cancel(firePending(ctx, id))
+        PreMeetingScheduler.cancel(ctx, id)
     }
 
+    /** 開機或更新後重新排程;重複提醒錯過的次數直接略過,排到下一次。 */
     fun rescheduleAll(ctx: Context) {
-        ReminderStore.load(ctx).forEach { schedule(ctx, it) }
+        val now = System.currentTimeMillis()
+        ReminderStore.load(ctx).forEach { r0 ->
+            val r = if (r0.repeat.isNotEmpty()) Repeat.advance(r0, now) else r0
+            if (r != r0) ReminderStore.upsert(ctx, r)
+            schedule(ctx, r)
+        }
     }
 }
 
@@ -557,8 +565,20 @@ class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra(EXTRA_ID, -1L)
         if (id < 0) return
-        val r = ReminderStore.get(context, id) ?: return
+        var r = ReminderStore.get(context, id) ?: return
         if (r.done) return
+        var ringId = id
+        if (r.repeat.isNotEmpty()) {
+            // 重複提醒:這一次用單次副本去響,系列本身往後移到下一次
+            val now = System.currentTimeMillis()
+            val clone = r.copy(id = Assistant.newId(), repeat = "", leadMin = 0, triggerAt = now, done = false)
+            ReminderStore.upsert(context, clone)
+            val next = Repeat.advance(Repeat.shift(r), now)
+            ReminderStore.upsert(context, next)
+            AlarmScheduler.schedule(context, next)
+            r = clone
+            ringId = clone.id
+        }
         try {
             // 人正在開會(別的排程進行中)就先靜音問使用者;設定裡可以關掉
             val busy = if (AppSettings.conflictAsk(context)) {
@@ -566,7 +586,7 @@ class AlarmReceiver : BroadcastReceiver() {
             } else {
                 null
             }
-            AlarmService.start(context, id, busy?.id ?: -1L)
+            AlarmService.start(context, ringId, busy?.id ?: -1L)
         } catch (e: Exception) {
             CrashLog.save(context, e)
             AlarmNotifier.show(context, r)

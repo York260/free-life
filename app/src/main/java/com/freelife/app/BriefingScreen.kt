@@ -291,7 +291,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "提醒響起時,如果有別的排程正在進行,先靜音問我",
+                    text = "開會中先靜音問我;開會前 10 分鐘先警告會被靜音的提醒",
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
                 Switch(
@@ -303,7 +303,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
             }
             Text(
-                text = "只會震動一下並顯示橫幅,可選「會後再提醒」「照常響」「關閉」。3 分鐘沒處理就改成正常響鈴,不會漏掉。" +
+                text = "提醒響起時如果別的排程正在進行,只會震動一下並顯示橫幅,可選「會後再提醒」「照常響」「關閉」。" +
+                    "3 分鐘沒處理就改成正常響鈴,不會漏掉。排程開始前 10 分鐘,若期間有提醒會響,會先通知你。" +
                     "長度超過 8 小時的排程(例如出差)不算開會。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

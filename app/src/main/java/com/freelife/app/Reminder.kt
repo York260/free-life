@@ -23,6 +23,10 @@ data class Reminder(
     val done: Boolean = false,
     val startAt: Long = 0L,
     val endAt: Long? = null,
+    /** 重複規則(見 Repeat):空字串代表不重複。 */
+    val repeat: String = "",
+    /** 提前幾分鐘響鈴;0 代表開始時才響。 */
+    val leadMin: Int = 0,
 ) {
     /** 開始時間;舊資料沒有存開始時間,就用響鈴時間或建立時間。 */
     val start: Long get() = if (startAt > 0L) startAt else (triggerAt ?: id)
@@ -36,6 +40,13 @@ private val hmFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm"
 
 fun formatTrigger(millis: Long): String =
     Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(timeFormatter)
+
+/** 提前時間的文字:30 → 「30 分鐘」,60 → 「1 小時」,1440 → 「1 天」。 */
+fun leadLabel(min: Int): String = when {
+    min % 1440 == 0 -> "${min / 1440} 天"
+    min % 60 == 0 -> "${min / 60} 小時"
+    else -> "$min 分鐘"
+}
 
 /** 「10/8 (三) 15:00–17:00」;跨日時結束時間也帶日期。 */
 fun formatRange(startMs: Long, endMs: Long): String {
@@ -70,6 +81,8 @@ object ReminderStore {
                     done = o.optBoolean("done", false),
                     startAt = o.optLong("startAt", 0L),
                     endAt = if (o.has("endAt") && !o.isNull("endAt")) o.getLong("endAt") else null,
+                    repeat = o.optString("repeat", ""),
+                    leadMin = o.optInt("leadMin", 0),
                 )
             }
         } catch (e: Exception) {
@@ -89,6 +102,8 @@ object ReminderStore {
             o.put("done", r.done)
             if (r.startAt > 0L) o.put("startAt", r.startAt)
             if (r.endAt != null) o.put("endAt", r.endAt)
+            if (r.repeat.isNotEmpty()) o.put("repeat", r.repeat)
+            if (r.leadMin > 0) o.put("leadMin", r.leadMin)
             arr.put(o)
         }
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)

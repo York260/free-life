@@ -60,9 +60,9 @@ object Briefing {
     fun collect(now: LocalDateTime, all: List<Reminder>): DayPlan {
         val zone = ZoneId.systemDefault()
         val items = all
-            .filter { !it.done }
-            .mapNotNull { r ->
-                val t = r.triggerAt ?: return@mapNotNull null
+            .filter { !it.done && (it.triggerAt != null || it.endAt != null) }
+            .map { r ->
+                val t = r.start
                 Item(
                     r,
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(t), zone),
@@ -76,7 +76,7 @@ object Briefing {
             today = items.filter { it.at.toLocalDate() == today && !(it.end ?: it.at).isBefore(now) },
             tomorrow = items.filter { it.at.toLocalDate() == today.plusDays(1) },
             overdue = items.filter { (it.end ?: it.at).isBefore(now) },
-            quick = all.filter { !it.done && it.triggerAt == null },
+            quick = all.filter { !it.done && it.triggerAt == null && it.endAt == null },
         )
     }
 

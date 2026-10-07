@@ -56,6 +56,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".PreMeetingReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".ActionReceiver"
             android:exported="false" />
 

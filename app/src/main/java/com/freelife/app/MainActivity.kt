@@ -252,6 +252,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleDone(r: Reminder) {
+        if (r.repeat.isNotEmpty() && !r.done) {
+            // 重複提醒沒有「完成」:勾選代表略過這一次,直接排到下一次
+            val next = Repeat.advance(Repeat.shift(r), System.currentTimeMillis())
+            AlarmScheduler.cancel(this, r.id)
+            ReminderStore.upsert(this, next)
+            AlarmScheduler.schedule(this, next)
+            refreshReminders()
+            return
+        }
         val updated = r.copy(done = !r.done)
         ReminderStore.upsert(this, updated)
         if (updated.done) {
@@ -571,6 +580,8 @@ private fun ReminderRow(
             else -> add("記下於 " + formatTrigger(r.start))
         }
         if (r.location.isNotBlank()) add(r.location)
+        if (r.repeat.isNotEmpty()) add("🔁 " + Repeat.label(r.repeat) + "(勾選=略過這次)")
+        if (r.leadMin > 0) add("提前 " + leadLabel(r.leadMin))
         if (ongoing) add("進行中")
         if (overdue) add("已過時")
     }

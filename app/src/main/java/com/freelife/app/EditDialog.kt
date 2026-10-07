@@ -2,6 +2,7 @@ package com.freelife.app
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -40,6 +42,33 @@ private fun toLocal(ms: Long): LocalDateTime =
 private fun toMillis(dt: LocalDateTime): Long =
     dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
+private val LEAD_OPTIONS = listOf(
+    0 to "準時",
+    10 to "10 分鐘",
+    30 to "30 分鐘",
+    60 to "1 小時",
+    1440 to "1 天",
+)
+
+/** 一排可左右滑動的單選按鈕;選到的是實心。 */
+@Composable
+private fun <T> ChoiceRow(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Row(
+        modifier = Modifier
+            .padding(top = 4.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { (value, label) ->
+            if (value == selected) {
+                Button(onClick = { onSelect(value) }) { Text(label) }
+            } else {
+                OutlinedButton(onClick = { onSelect(value) }) { Text(label) }
+            }
+        }
+    }
+}
+
 /**
  * 編輯一筆提醒:標題、地點、開始時間、結束時間(有結束時間就是排程)、是否在開始時響鈴。
  * 儲存時回傳改好的 Reminder;id 與完成狀態不變。
@@ -61,6 +90,8 @@ fun EditReminderDialog(
         )
     }
     var ring by remember(r.id) { mutableStateOf(r.triggerAt != null || r.endAt != null) }
+    var repeat by remember(r.id) { mutableStateOf(r.repeat) }
+    var lead by remember(r.id) { mutableStateOf(r.leadMin) }
     var error by remember(r.id) { mutableStateOf<String?>(null) }
 
     fun pickDate(current: LocalDateTime, onPicked: (LocalDateTime) -> Unit) {
@@ -165,6 +196,22 @@ fun EditReminderDialog(
                     Switch(checked = ring, onCheckedChange = { ring = it })
                 }
 
+                Text(
+                    text = "重複",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                ChoiceRow(Repeat.OPTIONS, repeat) { repeat = it }
+
+                Text(
+                    text = "提前響鈴",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                ChoiceRow(LEAD_OPTIONS, lead) { lead = it }
+
                 val e = error
                 if (e != null) {
                     Text(
@@ -181,10 +228,13 @@ fun EditReminderDialog(
                 val t = title.trim()
                 val startMs = toMillis(start)
                 val endMs = if (hasEnd) toMillis(end) else null
+                val ringOn = ring || repeat.isNotEmpty()
+                val leadMs = lead * 60_000L
+                val ringAt = if (lead > 0 && startMs - leadMs > System.currentTimeMillis()) startMs - leadMs else startMs
                 when {
                     t.isEmpty() -> error = "標題不能空白"
                     endMs != null && endMs <= startMs -> error = "結束時間要晚於開始時間"
-                    ring && !r.done && startMs <= System.currentTimeMillis() &&
+                    ringOn && !r.done && startMs <= System.currentTimeMillis() &&
                         (startMs != r.start || r.triggerAt == null) ->
                         error = "開始時間已經過了,不能響鈴。請改時間,或關掉「開始時響鈴」"
                     else -> onSave(
@@ -193,7 +243,9 @@ fun EditReminderDialog(
                             location = location.trim(),
                             startAt = startMs,
                             endAt = endMs,
-                            triggerAt = if (ring) startMs else null,
+                            triggerAt = if (ringOn) ringAt else null,
+                            repeat = repeat,
+                            leadMin = lead,
                         ),
                     )
                 }
