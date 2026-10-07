@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private var notifGranted by mutableStateOf(true)
     private var fullScreenOk by mutableStateOf(true)
     private var exactAlarmOk by mutableStateOf(true)
+    private var overlayOk by mutableStateOf(true)
     private var crashText by mutableStateOf<String?>(null)
 
     private val notifPermission =
@@ -83,10 +84,12 @@ class MainActivity : ComponentActivity() {
                         notifMissing = !notifGranted,
                         fullScreenMissing = !fullScreenOk,
                         exactAlarmMissing = !exactAlarmOk,
+                        overlayMissing = !overlayOk,
                         crashText = crashText,
                         onGrantNotif = { requestNotifPermission() },
                         onGrantFullScreen = { openFullScreenSettings() },
                         onGrantExactAlarm = { openExactAlarmSettings() },
+                        onGrantOverlay = { openOverlaySettings() },
                         onCopyCrash = { copyCrash() },
                         onClearCrash = { clearCrash() },
                         onAdd = { addReminder(it) },
@@ -125,6 +128,7 @@ class MainActivity : ComponentActivity() {
             true
         }
         exactAlarmOk = AlarmScheduler.canScheduleExact(this)
+        overlayOk = Settings.canDrawOverlays(this)
         crashText = CrashLog.load(this)
     }
 
@@ -136,6 +140,15 @@ class MainActivity : ComponentActivity() {
             } else {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
             }
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
+        }
+    }
+
+    private fun openOverlaySettings() {
+        val pkg = Uri.parse("package:$packageName")
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg))
         } catch (e: ActivityNotFoundException) {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
         }
@@ -209,10 +222,12 @@ private fun HomeScreen(
     notifMissing: Boolean,
     fullScreenMissing: Boolean,
     exactAlarmMissing: Boolean,
+    overlayMissing: Boolean,
     crashText: String?,
     onGrantNotif: () -> Unit,
     onGrantFullScreen: () -> Unit,
     onGrantExactAlarm: () -> Unit,
+    onGrantOverlay: () -> Unit,
     onCopyCrash: () -> Unit,
     onClearCrash: () -> Unit,
     onAdd: (Reminder) -> Unit,
@@ -282,6 +297,14 @@ private fun HomeScreen(
         }
         if (fullScreenMissing) {
             PermissionCard("需要允許「全螢幕通知」,鎖屏時才會跳出鬧鐘畫面", "前往設定", onGrantFullScreen)
+        }
+
+        if (overlayMissing) {
+            PermissionCard(
+                "建議允許「顯示在其他應用程式上層」,用手機時鬧鐘橫幅才會一直停在畫面上方",
+                "前往設定",
+                onGrantOverlay,
+            )
         }
 
         if (crashText != null) {

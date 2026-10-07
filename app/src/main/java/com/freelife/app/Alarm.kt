@@ -7,9 +7,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.app.KeyguardManager
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -21,6 +25,14 @@ import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -188,6 +200,7 @@ class AlarmService : Service() {
     private val autoStop = Runnable { stopSelf() }
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var overlay: View? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -217,6 +230,7 @@ class AlarmService : Service() {
         stopPlayback()
         startSound()
         startVibration()
+        showOverlay(r)
         handler.postDelayed(autoStop, AUTO_STOP_MS)
         return START_NOT_STICKY
     }
@@ -275,6 +289,115 @@ class AlarmService : Service() {
         }
     }
 
+    /**
+     * 螢幕亮著、沒鎖屏時(正在用手機),在畫面最上方畫一條不會自動消失的鬧鐘橫幅。
+     * 需要「顯示在其他應用程式上層」權限;沒給權限就只會有系統通知。
+     * 鎖屏或螢幕關著時由全螢幕通知負責。
+     */
+    private fun showOverlay(r: Reminder) {
+        removeOverlay()
+        try {
+            if (!Settings.canDrawOverlays(this)) return
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (!pm.isInteractive || km.isKeyguardLocked) return
+
+            val density = resources.displayMetrics.density
+            fun px(v: Int): Int = (v * density).toInt()
+
+            fun makeButton(label: String, color: Int, onClick: () -> Unit): Button {
+                val b = Button(this)
+                b.text = label
+                b.setTextColor(Color.WHITE)
+                b.background = GradientDrawable().apply {
+                    setColor(color)
+                    cornerRadius = px(12).toFloat()
+                }
+                b.setOnClickListener { onClick() }
+                return b
+            }
+
+            val appCtx = applicationContext
+            val id = r.id
+
+            val box = LinearLayout(this)
+            box.orientation = LinearLayout.VERTICAL
+            box.setPadding(px(16), px(12), px(16), px(12))
+            box.background = GradientDrawable().apply {
+                setColor(Color.argb(245, 32, 33, 36))
+                cornerRadius = px(20).toFloat()
+            }
+
+            val title = TextView(this)
+            title.text = "⏰ ${r.title}"
+            title.setTextColor(Color.WHITE)
+            title.textSize = 20f
+            box.addView(title)
+
+            val detail = if (r.location.isBlank()) "時間到了" else "時間到了 · ${r.location}"
+            val sub = TextView(this)
+            sub.text = detail
+            sub.setTextColor(Color.rgb(200, 200, 200))
+            sub.textSize = 14f
+            box.addView(sub)
+
+            val row = LinearLayout(this)
+            row.orientation = LinearLayout.HORIZONTAL
+            val rowParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            rowParams.topMargin = px(8)
+            val btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            btnParams.marginEnd = px(8)
+            val btnParamsLast = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            row.addView(
+                makeButton("延後 10 分鐘", Color.rgb(60, 64, 67)) { AlarmActions.snooze(appCtx, id, 10) },
+                btnParams,
+            )
+            row.addView(
+                makeButton("完成", Color.rgb(79, 70, 229)) { AlarmActions.done(appCtx, id) },
+                btnParamsLast,
+            )
+            box.addView(row, rowParams)
+
+            val statusBarId = resources.getIdentifier("status_bar_height", "dimen", "android")
+            val statusBar = if (statusBarId > 0) resources.getDimensionPixelSize(statusBarId) else px(24)
+
+            val lp = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT,
+            )
+            lp.gravity = Gravity.TOP
+            lp.y = statusBar + px(4)
+
+            // 外層留左右邊距,橫幅才不會貼齊螢幕邊緣
+            val wrapper = FrameLayout(this)
+            wrapper.setPadding(px(8), 0, px(8), 0)
+            wrapper.addView(box)
+
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            wm.addView(wrapper, lp)
+            overlay = wrapper
+        } catch (e: Exception) {
+            CrashLog.save(this, e)
+        }
+    }
+
+    private fun removeOverlay() {
+        val v = overlay ?: return
+        try {
+            (getSystemService(Context.WINDOW_SERVICE) as WindowManager).removeView(v)
+        } catch (ignored: Exception) {
+            // 視窗已經不在了
+        }
+        overlay = null
+    }
+
     private fun stopPlayback() {
         handler.removeCallbacks(autoStop)
         try {
@@ -286,6 +409,7 @@ class AlarmService : Service() {
         player = null
         vibrator?.cancel()
         vibrator = null
+        removeOverlay()
     }
 
     override fun onDestroy() {
