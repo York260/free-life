@@ -104,6 +104,28 @@ object Briefing {
         val tomorrow = today.plusDays(1)
         val out = mutableListOf<Suggestion>()
 
+        // 時間重疊的行程:最優先提醒
+        val timeline = plan.today + plan.tomorrow
+        var clash: Pair<Item, Item>? = null
+        outer@ for (i in timeline.indices) {
+            val a = timeline[i]
+            for (j in i + 1 until timeline.size) {
+                val b = timeline[j]
+                val overlap = if (a.end != null) b.at.isBefore(a.end) else b.at == a.at
+                if (overlap) {
+                    clash = Pair(a, b)
+                    break@outer
+                }
+            }
+        }
+        if (clash != null) {
+            val dayWord = if (clash.first.at.toLocalDate() == today) "今天" else "明天"
+            out += Suggestion(
+                "$dayWord「${clash.first.r.title}」(${span(clash.first)})和「${clash.second.r.title}」" +
+                    "(${span(clash.second)})時間重疊,要改其中一個嗎?",
+            )
+        }
+
         // 明天有預約或看診:今天先電話確認
         val appt = plan.tomorrow.firstOrNull { APPT_RE.containsMatchIn(it.r.title) }
         if (appt != null) {

@@ -214,6 +214,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var minutes by remember { mutableStateOf(AppSettings.briefingMinutes(ctx)) }
     var key by remember { mutableStateOf(AppSettings.apiKey(ctx)) }
     var model by remember { mutableStateOf(AppSettings.model(ctx)) }
+    var conflictAsk by remember { mutableStateOf(AppSettings.conflictAsk(ctx)) }
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
 
@@ -277,6 +278,37 @@ fun SettingsScreen(onBack: () -> Unit) {
             ) {
                 Text("提醒時間:%02d:%02d(點此修改)".format(minutes / 60, minutes % 60))
             }
+
+            Text(
+                text = "會議中的提醒",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "提醒響起時,如果有別的排程正在進行,先靜音問我",
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
+                Switch(
+                    checked = conflictAsk,
+                    onCheckedChange = {
+                        conflictAsk = it
+                        AppSettings.setConflictAsk(ctx, it)
+                    },
+                )
+            }
+            Text(
+                text = "只會震動一下並顯示橫幅,可選「會後再提醒」「照常響」「關閉」。3 分鐘沒處理就改成正常響鈴,不會漏掉。" +
+                    "長度超過 8 小時的排程(例如出差)不算開會。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
 
             Text(
                 text = "Claude AI 建議(選填)",

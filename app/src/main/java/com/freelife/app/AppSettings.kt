@@ -24,6 +24,13 @@ object AppSettings {
         prefs(ctx).edit().putInt("briefing_minutes", value).apply()
     }
 
+    /** 提醒響起時如果人正在開會(別的排程進行中),先靜音問我怎麼處理。預設開啟。 */
+    fun conflictAsk(ctx: Context): Boolean = prefs(ctx).getBoolean("conflict_ask", true)
+
+    fun setConflictAsk(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("conflict_ask", value).apply()
+    }
+
     fun apiKey(ctx: Context): String = prefs(ctx).getString("api_key", "") ?: ""
 
     fun setApiKey(ctx: Context, value: String) {

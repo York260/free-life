@@ -16,6 +16,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private var fullScreenOk by mutableStateOf(true)
     private var exactAlarmOk by mutableStateOf(true)
     private var overlayOk by mutableStateOf(true)
+    private var silenced by mutableStateOf(false)
     private var crashText by mutableStateOf<String?>(null)
     private var briefingRequested by mutableStateOf(false)
 
@@ -103,11 +105,14 @@ class MainActivity : ComponentActivity() {
                             fullScreenMissing = !fullScreenOk,
                             exactAlarmMissing = !exactAlarmOk,
                             overlayMissing = !overlayOk,
+                            silenced = silenced,
                             crashText = crashText,
                             onGrantNotif = { requestNotifPermission() },
                             onGrantFullScreen = { openFullScreenSettings() },
                             onGrantExactAlarm = { openExactAlarmSettings() },
                             onGrantOverlay = { openOverlaySettings() },
+                            onOpenSound = { openSoundSettings() },
+                            onEdit = { updateReminder(it) },
                             onCopyCrash = { copyCrash() },
                             onClearCrash = { clearCrash() },
                             onAdd = { addReminder(it) },
@@ -167,6 +172,7 @@ class MainActivity : ComponentActivity() {
         }
         exactAlarmOk = AlarmScheduler.canScheduleExact(this)
         overlayOk = Settings.canDrawOverlays(this)
+        silenced = Conflicts.totalSilence(this)
         crashText = CrashLog.load(this)
     }
 
@@ -189,6 +195,14 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg))
         } catch (e: ActivityNotFoundException) {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
+        }
+    }
+
+    private fun openSoundSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_SOUND_SETTINGS))
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
         }
     }
 
@@ -229,6 +243,14 @@ class MainActivity : ComponentActivity() {
         refreshPermissions()
     }
 
+    private fun updateReminder(r: Reminder) {
+        AlarmScheduler.cancel(this, r.id)
+        ReminderStore.upsert(this, r)
+        AlarmScheduler.schedule(this, r)
+        refreshReminders()
+        refreshPermissions()
+    }
+
     private fun toggleDone(r: Reminder) {
         val updated = r.copy(done = !r.done)
         ReminderStore.upsert(this, updated)
@@ -261,11 +283,14 @@ private fun HomeScreen(
     fullScreenMissing: Boolean,
     exactAlarmMissing: Boolean,
     overlayMissing: Boolean,
+    silenced: Boolean,
     crashText: String?,
     onGrantNotif: () -> Unit,
     onGrantFullScreen: () -> Unit,
     onGrantExactAlarm: () -> Unit,
     onGrantOverlay: () -> Unit,
+    onOpenSound: () -> Unit,
+    onEdit: (Reminder) -> Unit,
     onCopyCrash: () -> Unit,
     onClearCrash: () -> Unit,
     onAdd: (Reminder) -> Unit,
@@ -278,6 +303,12 @@ private fun HomeScreen(
     var input by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Outcome.Ask?>(null) }
     var lastMessage by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<Reminder?>(null) }
+
+    fun conflictNote(r: Reminder): String {
+        val clash = Conflicts.overlapping(reminders.toList(), r)
+        return if (clash.isEmpty()) "" else "\n⚠ ${Conflicts.describe(clash)}時間重疊,點項目可以改時間"
+    }
 
     fun handle(outcome: Outcome) {
         when (outcome) {
@@ -288,7 +319,7 @@ private fun HomeScreen(
             is Outcome.Done -> {
                 pending = null
                 onAdd(outcome.reminder)
-                lastMessage = outcome.message
+                lastMessage = outcome.message + conflictNote(outcome.reminder)
             }
         }
     }
@@ -351,6 +382,10 @@ private fun HomeScreen(
             )
         }
 
+        if (silenced) {
+            PermissionCard("手機目前是勿擾的「完全靜音」,鬧鐘也不會響。請改成「僅限鬧鐘」或關閉", "前往設定", onOpenSound)
+        }
+
         if (crashText != null) {
             Card(
                 modifier = Modifier
@@ -389,7 +424,7 @@ private fun HomeScreen(
                 item { EmptyHint("還沒有排程。試試輸入「明天下午3點到4點看牙醫」") }
             }
             items(scheduled, key = { it.id }) { r ->
-                ReminderRow(r, onToggle, onDelete)
+                ReminderRow(r, onToggle, onDelete) { editing = r }
             }
 
             item { SectionHeader("小任務 · 只有開始時間") }
@@ -397,12 +432,25 @@ private fun HomeScreen(
                 item { EmptyHint("沒有結束時間的事會放這裡,例如輸入「買牛奶」") }
             }
             items(quick, key = { it.id }) { r ->
-                ReminderRow(r, onToggle, onDelete)
+                ReminderRow(r, onToggle, onDelete) { editing = r }
             }
 
             item {
                 TextButton(onClick = onTestAlarm) { Text("測試鬧鐘(10 秒後響)") }
             }
+        }
+
+        val ed = editing
+        if (ed != null) {
+            EditReminderDialog(
+                r = ed,
+                onSave = { updated ->
+                    onEdit(updated)
+                    editing = null
+                    lastMessage = "已儲存:${updated.title}" + conflictNote(updated)
+                },
+                onDismiss = { editing = null },
+            )
         }
 
         val p = pending
@@ -509,6 +557,7 @@ private fun ReminderRow(
     r: Reminder,
     onToggle: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
+    onEdit: () -> Unit,
 ) {
     val nowMs = System.currentTimeMillis()
     val end = r.endAt
@@ -533,7 +582,7 @@ private fun ReminderRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = r.done, onCheckedChange = { onToggle(r) })
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).clickable { onEdit() }) {
             Text(
                 text = r.title,
                 style = MaterialTheme.typography.bodyLarge,
