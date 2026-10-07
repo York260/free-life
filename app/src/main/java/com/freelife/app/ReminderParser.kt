@@ -48,7 +48,9 @@ object ReminderParser {
     private val DAY_ONLY_RE = Regex("(\\d{1,2})\\s*(?:日|號|号)")
     private val TIME_RE = Regex(
         "(凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜裡|半夜)?\\s*" +
-            "(?:(\\d{1,2}):(\\d{2})|(\\d{1,2}|[零〇一二兩三四五六七八九十]{1,3})\\s*[點点](?:鐘|整)?(?:\\s*(半)|\\s*(\\d{1,2})\\s*分)?)"
+            "(?:(\\d{1,2}):(\\d{2})|(\\d{1,2}|[零〇一二兩三四五六七八九十]{1,3})\\s*[點点](?:鐘|整)?(?:\\s*(半)|\\s*(\\d{1,2})\\s*分)?" +
+            // 四位數寫法:1220 = 12:20、0830 = 08:30(年份、金額、日期不算)
+            "|(?<![\\d/:.])([01]\\d|2[0-3])([0-5]\\d)(?!\\d|年|元|塊|號|号|日|月|人|個|分|點|点|%|:|/|\\.\\d|-\\d{1,2}-\\d{1,2}))"
     )
     private val WEEKDAYS_RE = Regex(
         "(?:每(?:個)?)?(?:平日|工作日|(?:週|周|星期|禮拜)一\\s*(?:到|至|~|\\-)\\s*(?:週|周|星期|禮拜)?五)"
@@ -102,6 +104,10 @@ object ReminderParser {
 
     /** 從 TIME_RE 的比對結果取出時、分、時段;不合理的數字回傳 null。 */
     private fun readTime(g: List<String>): RawTime? {
+        if (g[7].isNotEmpty()) {
+            // 四位數是 24 小時制,沒說上午下午也不用再問
+            return RawTime(g[7].toInt(), g[8].toInt(), if (g[1].isEmpty()) "24h" else g[1])
+        }
         val colon = g[2].isNotEmpty()
         val hRaw: Int? = if (colon) g[2].toIntOrNull() else cnToInt(g[4])
         val mRaw: Int? = when {
