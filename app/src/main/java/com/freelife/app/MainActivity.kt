@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private var exactAlarmOk by mutableStateOf(true)
     private var overlayOk by mutableStateOf(true)
     private var crashText by mutableStateOf<String?>(null)
+    private var briefingRequested by mutableStateOf(false)
 
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -76,29 +79,64 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         AlarmNotifier.ensureChannel(this)
 
+        briefingRequested = intent.getBooleanExtra(BriefingNotifier.EXTRA_OPEN_BRIEFING, false)
+        BriefingScheduler.schedule(this)
+
         setContent {
             FreeLifeTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    HomeScreen(
-                        reminders = reminders,
-                        notifMissing = !notifGranted,
-                        fullScreenMissing = !fullScreenOk,
-                        exactAlarmMissing = !exactAlarmOk,
-                        overlayMissing = !overlayOk,
-                        crashText = crashText,
-                        onGrantNotif = { requestNotifPermission() },
-                        onGrantFullScreen = { openFullScreenSettings() },
-                        onGrantExactAlarm = { openExactAlarmSettings() },
-                        onGrantOverlay = { openOverlaySettings() },
-                        onCopyCrash = { copyCrash() },
-                        onClearCrash = { clearCrash() },
-                        onAdd = { addReminder(it) },
-                        onToggle = { toggleDone(it) },
-                        onDelete = { deleteReminder(it) },
-                        onTestAlarm = { testAlarm() },
-                    )
+                    var screen by remember { mutableStateOf(Screen.HOME) }
+
+                    // 從早上的確認通知點進來時,直接開啟每日確認
+                    LaunchedEffect(briefingRequested) {
+                        if (briefingRequested) {
+                            screen = Screen.BRIEFING
+                            briefingRequested = false
+                        }
+                    }
+                    BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
+
+                    when (screen) {
+                        Screen.HOME -> HomeScreen(
+                            reminders = reminders,
+                            notifMissing = !notifGranted,
+                            fullScreenMissing = !fullScreenOk,
+                            exactAlarmMissing = !exactAlarmOk,
+                            overlayMissing = !overlayOk,
+                            crashText = crashText,
+                            onGrantNotif = { requestNotifPermission() },
+                            onGrantFullScreen = { openFullScreenSettings() },
+                            onGrantExactAlarm = { openExactAlarmSettings() },
+                            onGrantOverlay = { openOverlaySettings() },
+                            onCopyCrash = { copyCrash() },
+                            onClearCrash = { clearCrash() },
+                            onAdd = { addReminder(it) },
+                            onToggle = { toggleDone(it) },
+                            onDelete = { deleteReminder(it) },
+                            onTestAlarm = { testAlarm() },
+                            onOpenBriefing = { screen = Screen.BRIEFING },
+                            onOpenSettings = { screen = Screen.SETTINGS },
+                        )
+
+                        Screen.BRIEFING -> BriefingScreen(
+                            reminders = reminders,
+                            onAdd = { addReminder(it) },
+                            onBack = { screen = Screen.HOME },
+                            onOpenSettings = { screen = Screen.SETTINGS },
+                        )
+
+                        Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })
+                    }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(BriefingNotifier.EXTRA_OPEN_BRIEFING, false)) {
+            briefingRequested = true
         }
     }
 
@@ -234,6 +272,8 @@ private fun HomeScreen(
     onToggle: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
     onTestAlarm: () -> Unit,
+    onOpenBriefing: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Outcome.Ask?>(null) }
@@ -286,8 +326,12 @@ private fun HomeScreen(
             text = "打字,或按鍵盤上的麥克風說一句話,我來幫你記",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 8.dp),
+            modifier = Modifier.padding(bottom = 4.dp),
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onOpenBriefing) { Text("☀ 每日確認") }
+            TextButton(onClick = onOpenSettings) { Text("設定") }
+        }
 
         if (exactAlarmMissing) {
             PermissionCard("需要允許「鬧鐘與提醒」,才能在準確的時間響鈴", "前往設定", onGrantExactAlarm)

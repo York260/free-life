@@ -32,7 +32,7 @@ object Assistant {
     private var lastId = 0L
 
     @Synchronized
-    private fun newId(): Long {
+    fun newId(): Long {
         val n = maxOf(System.currentTimeMillis(), lastId + 1)
         lastId = n
         return n
