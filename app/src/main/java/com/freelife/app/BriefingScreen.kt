@@ -3,6 +3,7 @@ package com.freelife.app
 import android.app.TimePickerDialog
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import android.content.Intent
@@ -260,6 +262,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var soundName by remember { mutableStateOf(AlarmSound.title(ctx)) }
+    var soundKey by remember { mutableStateOf(AppSettings.alarmSound(ctx)) }
     var volume by remember { mutableStateOf(AppSettings.alarmVolume(ctx).toFloat()) }
     var fade by remember { mutableStateOf(AppSettings.alarmFade(ctx)) }
     val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
@@ -269,6 +272,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             // 選到「預設」時系統會回傳預設鬧鐘的 uri;存成空字串代表跟著系統
             val isDefault = u == null || u == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             AppSettings.setAlarmSound(ctx, if (isDefault) "" else u.toString())
+            soundKey = AppSettings.alarmSound(ctx)
             soundName = AlarmSound.title(ctx)
             AlarmSound.preview(ctx)
         }
@@ -347,6 +351,31 @@ fun SettingsScreen(onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            AlarmSound.BUILTIN.forEach { (key, label, desc) ->
+                val on = soundKey == "builtin:$key"
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .clickable {
+                            AppSettings.setAlarmSound(ctx, "builtin:$key")
+                            soundKey = "builtin:$key"
+                            soundName = AlarmSound.title(ctx)
+                            AlarmSound.preview(ctx)
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = on, onClick = null)
+                    Column(modifier = Modifier.padding(start = 10.dp)) {
+                        Text("賈維斯・$label", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            desc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = {
                     val i = Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
@@ -359,10 +388,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                             AlarmSound.chosen(ctx) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
                         )
                     soundPicker.launch(i)
-                }) { Text("選擇鈴聲") }
+                }) { Text("系統鈴聲…") }
                 TextButton(onClick = { AlarmSound.preview(ctx) }) { Text("試聽 5 秒") }
                 TextButton(onClick = {
                     AppSettings.setAlarmSound(ctx, "")
+                    soundKey = ""
                     soundName = AlarmSound.title(ctx)
                 }) { Text("恢復預設") }
             }

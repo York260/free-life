@@ -10,12 +10,31 @@ import android.os.Looper
 
 /** 鬧鐘鈴聲:使用者挑的聲音(沒挑就用系統預設鬧鐘)、音量、漸強。 */
 object AlarmSound {
+    /** 內建的賈維斯風格鈴聲(原創合成):代號、名稱、說明。 */
+    val BUILTIN = listOf(
+        Triple("jarvis_boot", "系統啟動", "往上的琶音加光暈和弦,像 HUD 開機,很有賈維斯的感覺"),
+        Triple("jarvis_scan", "HUD 掃描", "掃頻、數位點擊聲,最後兩聲清亮的確認音"),
+        Triple("jarvis_reactor", "反應爐警示", "低頻脈動加雙音警報,最有喚醒力,適合很難起床的時候"),
+        Triple("jarvis_chime", "輕柔通知", "兩個上行的鐘聲,溫和,適合一般提醒"),
+    )
+
+    private const val PREFIX = "builtin:"
+
+    fun builtinKey(ctx: Context): String? =
+        AppSettings.alarmSound(ctx).takeIf { it.startsWith(PREFIX) }?.removePrefix(PREFIX)
+
     fun chosen(ctx: Context): Uri? {
         val s = AppSettings.alarmSound(ctx)
-        return if (s.isBlank()) null else Uri.parse(s)
+        if (s.isBlank()) return null
+        if (s.startsWith(PREFIX)) {
+            val id = ctx.resources.getIdentifier(s.removePrefix(PREFIX), "raw", ctx.packageName)
+            return if (id != 0) Uri.parse("android.resource://${ctx.packageName}/$id") else null
+        }
+        return Uri.parse(s)
     }
 
     fun title(ctx: Context): String {
+        builtinKey(ctx)?.let { k -> BUILTIN.firstOrNull { it.first == k }?.let { return "賈維斯・${it.second}" } }
         val u = chosen(ctx) ?: return "系統預設鬧鐘"
         return try {
             RingtoneManager.getRingtone(ctx, u)?.getTitle(ctx) ?: "自訂鈴聲"
