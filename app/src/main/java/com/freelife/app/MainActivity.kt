@@ -3,6 +3,8 @@ package com.freelife.app
 import android.Manifest
 import android.app.NotificationManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -60,6 +62,8 @@ class MainActivity : ComponentActivity() {
     private val reminders = mutableStateListOf<Reminder>()
     private var notifGranted by mutableStateOf(true)
     private var fullScreenOk by mutableStateOf(true)
+    private var exactAlarmOk by mutableStateOf(true)
+    private var crashText by mutableStateOf<String?>(null)
 
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -78,8 +82,13 @@ class MainActivity : ComponentActivity() {
                         reminders = reminders,
                         notifMissing = !notifGranted,
                         fullScreenMissing = !fullScreenOk,
+                        exactAlarmMissing = !exactAlarmOk,
+                        crashText = crashText,
                         onGrantNotif = { requestNotifPermission() },
                         onGrantFullScreen = { openFullScreenSettings() },
+                        onGrantExactAlarm = { openExactAlarmSettings() },
+                        onCopyCrash = { copyCrash() },
+                        onClearCrash = { clearCrash() },
                         onAdd = { addReminder(it) },
                         onToggle = { toggleDone(it) },
                         onDelete = { deleteReminder(it) },
@@ -115,6 +124,32 @@ class MainActivity : ComponentActivity() {
         } else {
             true
         }
+        exactAlarmOk = AlarmScheduler.canScheduleExact(this)
+        crashText = CrashLog.load(this)
+    }
+
+    private fun openExactAlarmSettings() {
+        val pkg = Uri.parse("package:$packageName")
+        try {
+            if (Build.VERSION.SDK_INT >= 31) {
+                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, pkg))
+            } else {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
+            }
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg))
+        }
+    }
+
+    private fun copyCrash() {
+        val text = crashText ?: return
+        val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("Free Life 當機紀錄", text))
+    }
+
+    private fun clearCrash() {
+        CrashLog.clear(this)
+        crashText = null
     }
 
     private fun requestNotifPermission() {
@@ -140,6 +175,7 @@ class MainActivity : ComponentActivity() {
         ReminderStore.upsert(this, r)
         AlarmScheduler.schedule(this, r)
         refreshReminders()
+        refreshPermissions()
     }
 
     private fun toggleDone(r: Reminder) {
@@ -172,8 +208,13 @@ private fun HomeScreen(
     reminders: List<Reminder>,
     notifMissing: Boolean,
     fullScreenMissing: Boolean,
+    exactAlarmMissing: Boolean,
+    crashText: String?,
     onGrantNotif: () -> Unit,
     onGrantFullScreen: () -> Unit,
+    onGrantExactAlarm: () -> Unit,
+    onCopyCrash: () -> Unit,
+    onClearCrash: () -> Unit,
     onAdd: (Reminder) -> Unit,
     onToggle: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
@@ -233,11 +274,41 @@ private fun HomeScreen(
             modifier = Modifier.padding(bottom = 8.dp),
         )
 
+        if (exactAlarmMissing) {
+            PermissionCard("需要允許「鬧鐘與提醒」,才能在準確的時間響鈴", "前往設定", onGrantExactAlarm)
+        }
         if (notifMissing) {
             PermissionCard("需要允許通知,鬧鐘才會響", "允許通知", onGrantNotif)
         }
         if (fullScreenMissing) {
             PermissionCard("需要允許「全螢幕通知」,鎖屏時才會跳出鬧鐘畫面", "前往設定", onGrantFullScreen)
+        }
+
+        if (crashText != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "上次出了問題(請按「複製」貼給我)",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        text = crashText.take(300),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onCopyCrash) { Text("複製") }
+                        TextButton(onClick = onClearCrash) { Text("清除") }
+                    }
+                }
+            }
         }
 
         LazyColumn(

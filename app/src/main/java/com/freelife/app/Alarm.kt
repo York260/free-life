@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 
 const val EXTRA_ID = "reminder_id"
@@ -36,15 +37,29 @@ object AlarmScheduler {
         )
     }
 
-    fun schedule(ctx: Context, r: Reminder) {
-        val at = r.triggerAt ?: return
-        if (r.done || at <= System.currentTimeMillis()) return
+    /** Android 12 以上必須持有「鬧鐘與提醒」權限才能排精確鬧鐘。 */
+    fun canScheduleExact(ctx: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 31) return true
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val show = PendingIntent.getActivity(
-            ctx, 0, Intent(ctx, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        am.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), firePending(ctx, r.id))
+        return am.canScheduleExactAlarms()
+    }
+
+    /** 排程成功(或不需要排程)回傳 true;沒有權限等原因失敗時回傳 false,不會讓 App 當機。 */
+    fun schedule(ctx: Context, r: Reminder): Boolean {
+        val at = r.triggerAt ?: return true
+        if (r.done || at <= System.currentTimeMillis()) return true
+        return try {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val show = PendingIntent.getActivity(
+                ctx, 0, Intent(ctx, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(at, show), firePending(ctx, r.id))
+            true
+        } catch (e: SecurityException) {
+            CrashLog.save(ctx, e)
+            false
+        }
     }
 
     fun cancel(ctx: Context, id: Long) {
