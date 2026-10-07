@@ -8,8 +8,10 @@ import java.time.temporal.TemporalAdjusters
 
 /**
  * 解析中的提醒草稿。
- * scheduled = 句子裡有日期或時間(排程);否則是隨手小事。
+ * 有日期或時間就是有開始時間(hasWhen);沒有則要追問開始時間。
  * needAmPm = 只說了「3點」這類沒有上午/下午的時間,time 裡暫存原始小時,等使用者回答。
+ * endTime / durationMin = 結束時間(同一天的時鐘)或持續多久;endAmbig = 結束時間沒說上午下午。
+ * relative = 「10分鐘後」這種相對時間;noEnd = 使用者表示沒有結束時間(隨手小事)。
  */
 data class Draft(
     val title: String,
@@ -18,8 +20,14 @@ data class Draft(
     val time: LocalTime? = null,
     val needAmPm: Boolean = false,
     val location: String = "",
-    val scheduled: Boolean = false,
     val askedLocation: Boolean = false,
+    val endTime: LocalTime? = null,
+    val endAmbig: Boolean = false,
+    val durationMin: Int? = null,
+    val relative: Boolean = false,
+    val askedStart: Boolean = false,
+    val askedEnd: Boolean = false,
+    val noEnd: Boolean = false,
 )
 
 /** 不需要網路、不需要 AI 的中文日期時間解析(第一版)。 */
@@ -40,6 +48,8 @@ object ReminderParser {
         "(凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜裡|半夜)?\\s*" +
             "(?:(\\d{1,2}):(\\d{2})|(\\d{1,2}|[零〇一二兩三四五六七八九十]{1,3})\\s*[點点](?:鐘|整)?(?:\\s*(半)|\\s*(\\d{1,2})\\s*分)?)"
     )
+    private val END_SEP_RE = Regex("\\s*(?:到|至|~|～|\\-|－|—|–)\\s*")
+    private val DUR_RE = Regex("(一個半|半|\\d+|[一二兩三四五六七八九十]+)\\s*(?:個)?\\s*(小時|鐘頭|分鐘|分)")
     private val FILLER_RE = Regex("提醒我|提醒|叫我|記得|幫我|請你|麻煩你|麻煩")
     private val PLACE_HINT_RE = Regex(
         "看診|看醫|牙醫|醫院|診所|門診|開會|會議|面試|約會|約診|相約|聚餐|聚會|吃飯|餐督|勤務|訓練|上課|出差|拜訪|報到|檢查|演講|考試"
@@ -74,6 +84,66 @@ object ReminderParser {
         return if (s.length == 1) cnDigits[s[0]] else null
     }
 
+    private data class RawTime(val hour: Int, val minute: Int, val period: String)
+
+    /** 從 TIME_RE 的比對結果取出時、分、時段;不合理的數字回傳 null。 */
+    private fun readTime(g: List<String>): RawTime? {
+        val colon = g[2].isNotEmpty()
+        val hRaw: Int? = if (colon) g[2].toIntOrNull() else cnToInt(g[4])
+        val mRaw: Int? = when {
+            colon -> g[3].toIntOrNull()
+            g[5].isNotEmpty() -> 30
+            else -> g[6].toIntOrNull() ?: 0
+        }
+        if (hRaw == null || mRaw == null || hRaw !in 0..24 || mRaw !in 0..59) return null
+        return RawTime(hRaw, mRaw, g[1])
+    }
+
+    /** 套用上午/下午等時段;回傳時間與「是否還需要問上午下午」。 */
+    private fun applyPeriod(t: RawTime): Pair<LocalTime, Boolean> {
+        var h: Int = t.hour
+        var ask = false
+        when (t.period) {
+            "下午", "傍晚" -> {
+                if (h in 1..11) h += 12
+            }
+            "晚上", "夜裡" -> {
+                if (h in 1..11) h += 12 else if (h == 12) h = 0
+            }
+            "中午" -> {
+                if (h in 1..4) h += 12
+            }
+            "凌晨", "半夜" -> {
+                if (h == 12) h = 0
+            }
+            "" -> {
+                if (h in 1..11) ask = true
+            }
+            else -> {}
+        }
+        if (h == 24) h = 0
+        return Pair(LocalTime.of(h, t.minute), ask)
+    }
+
+    /** 「2小時」「半小時」「30分鐘」轉成分鐘數;沒有就回傳 null。 */
+    fun parseDuration(text: String): Int? {
+        val m = DUR_RE.find(normalize(text)) ?: return null
+        return durationOf(m)
+    }
+
+    private fun durationOf(m: MatchResult): Int? {
+        val numText = m.groupValues[1]
+        val hour = m.groupValues[2] == "小時" || m.groupValues[2] == "鐘頭"
+        val n: Double = when (numText) {
+            "一個半" -> 1.5
+            "半" -> 0.5
+            else -> (cnToInt(numText) ?: return null).toDouble()
+        }
+        if (numText == "一個半" && !hour) return null
+        val minutes = (if (hour) n * 60 else n).toInt()
+        return if (minutes > 0) minutes else null
+    }
+
     private fun cut(s: String, r: IntRange): String =
         s.substring(0, r.first) + " " + s.substring(r.last + 1)
 
@@ -85,6 +155,10 @@ object ReminderParser {
         var time: LocalTime? = null
         var needAmPm = false
         var location = ""
+        var endTime: LocalTime? = null
+        var endAmbig = false
+        var durationMin: Int? = null
+        var relative = false
 
         // 地點:@診所 或 地點診所
         val locMatch = LOCATION_RE.find(s)
@@ -109,6 +183,7 @@ object ReminderParser {
                     val dt = now.plusMinutes(minutes).withSecond(0).withNano(0)
                     date = dt.toLocalDate()
                     time = dt.toLocalTime()
+                    relative = true
                 } else {
                     date = today.plusDays(n.toLong())
                 }
@@ -201,42 +276,54 @@ object ReminderParser {
             }
         }
 
-        // 時間:下午3點、15:30、三點半、8點10分
+        // 時間:下午3點、15:30、三點半、8點10分;後面可接結束時間(3點到5點、14:00-15:30)
         if (time == null) {
             val tm = TIME_RE.find(s)
-            if (tm != null) {
-                val g = tm.groupValues
-                val period = g[1]
-                val colon = g[2].isNotEmpty()
-                val hRaw: Int? = if (colon) g[2].toIntOrNull() else cnToInt(g[4])
-                val mRaw: Int? = when {
-                    colon -> g[3].toIntOrNull()
-                    g[5].isNotEmpty() -> 30
-                    else -> g[6].toIntOrNull() ?: 0
+            val raw = if (tm != null) readTime(tm.groupValues) else null
+            if (tm != null && raw != null) {
+                val (t0, ask0) = applyPeriod(raw)
+                time = t0
+                needAmPm = ask0
+                val restStart = tm.range.last + 1
+                val rest = s.substring(restStart)
+                for (sep in END_SEP_RE.findAll(rest)) {
+                    val after = rest.substring(sep.range.last + 1)
+                    val em = TIME_RE.find(after)
+                    if (em == null || em.range.first != 0) continue
+                    val er = readTime(em.groupValues) ?: continue
+                    val (t1, ask1) = applyPeriod(er)
+                    endTime = t1
+                    endAmbig = ask1
+                    val endRange = (restStart + sep.range.first)..(restStart + sep.range.last + em.range.last + 1)
+                    s = cut(s, endRange)
+                    break
                 }
-                if (hRaw != null && mRaw != null && hRaw in 0..24 && mRaw in 0..59) {
-                    var h: Int = hRaw
-                    when (period) {
-                        "下午", "傍晚" -> {
-                            if (h in 1..11) h += 12
-                        }
-                        "晚上", "夜裡" -> {
-                            if (h in 1..11) h += 12 else if (h == 12) h = 0
-                        }
-                        "中午" -> {
-                            if (h in 1..4) h += 12
-                        }
-                        "凌晨", "半夜" -> {
-                            if (h == 12) h = 0
-                        }
-                        "" -> {
-                            if (h in 1..11) needAmPm = true
-                        }
-                        else -> {}
-                    }
-                    if (h == 24) h = 0
-                    time = LocalTime.of(h, mRaw)
-                    s = cut(s, tm.range)
+                s = cut(s, tm.range)
+            }
+        }
+
+        // 開始沒說上午下午、結束有說:挑在結束之前最晚的那個(3點到下午5點 → 15:00)
+        val st = time
+        val et = endTime
+        if (st != null && et != null && needAmPm && !endAmbig) {
+            val c1 = st
+            val c2 = st.plusHours(12)
+            if (c2.isBefore(et)) {
+                time = c2
+                needAmPm = false
+            } else if (c1.isBefore(et)) {
+                needAmPm = false
+            }
+        }
+
+        // 持續時間:開會2小時、半小時(只在已有日期或時間、且還沒有結束時間時)
+        if (endTime == null && !relative && (date != null || time != null)) {
+            val dm = DUR_RE.find(s)
+            if (dm != null) {
+                val mins = durationOf(dm)
+                if (mins != null) {
+                    durationMin = mins
+                    s = cut(s, dm.range)
                 }
             }
         }
@@ -259,7 +346,10 @@ object ReminderParser {
             time = time,
             needAmPm = needAmPm,
             location = location,
-            scheduled = date != null || time != null,
+            endTime = endTime,
+            endAmbig = endAmbig,
+            durationMin = durationMin,
+            relative = relative,
         )
     }
 }

@@ -32,15 +32,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 
 enum class Screen { HOME, BRIEFING, SETTINGS }
 
-private val hm: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-
 private fun itemText(i: Item): String {
     val loc = if (i.r.location.isBlank()) "" else " @${i.r.location}"
-    return "${i.at.format(hm)}  ${i.r.title}$loc"
+    return "${Briefing.span(i)}  ${i.r.title}$loc"
 }
 
 @Composable

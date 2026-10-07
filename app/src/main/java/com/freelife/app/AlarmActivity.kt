@@ -44,7 +44,9 @@ class AlarmActivity : ComponentActivity() {
                     AlarmScreen(
                         title = reminder.title,
                         location = reminder.location,
-                        whenText = reminder.triggerAt?.let { formatTrigger(it) } ?: "",
+                        whenText = reminder.endAt?.let { formatRange(reminder.start, it) }
+                            ?: reminder.triggerAt?.let { formatTrigger(it) }
+                            ?: "",
                         onDone = {
                             AlarmActions.done(this, id)
                             finish()

@@ -250,7 +250,7 @@ class MainActivity : ComponentActivity() {
 
     private fun testAlarm() {
         val now = System.currentTimeMillis()
-        addReminder(Reminder(id = now, title = "測試鬧鐘", triggerAt = now + 10_000L))
+        addReminder(Reminder(id = now, title = "測試鬧鐘", triggerAt = now + 10_000L, startAt = now + 10_000L))
     }
 }
 
@@ -304,10 +304,10 @@ private fun HomeScreen(
 
     val scheduled = reminders
         .filter { it.isScheduled }
-        .sortedWith(compareBy<Reminder>({ it.done }, { it.triggerAt ?: 0L }))
+        .sortedWith(compareBy<Reminder>({ it.done }, { it.start }))
     val quick = reminders
         .filter { !it.isScheduled }
-        .sortedWith(compareBy<Reminder>({ it.done }, { -it.id }))
+        .sortedWith(compareBy<Reminder>({ it.done }, { it.start }))
 
     Column(
         modifier = Modifier
@@ -384,17 +384,17 @@ private fun HomeScreen(
                 .fillMaxWidth(),
             contentPadding = PaddingValues(vertical = 8.dp),
         ) {
-            item { SectionHeader("排程 · 鬧鐘提醒") }
+            item { SectionHeader("排程 · 有開始與結束時間") }
             if (scheduled.isEmpty()) {
-                item { EmptyHint("還沒有排程。試試輸入「明天下午3點看牙醫」") }
+                item { EmptyHint("還沒有排程。試試輸入「明天下午3點到4點看牙醫」") }
             }
             items(scheduled, key = { it.id }) { r ->
                 ReminderRow(r, onToggle, onDelete)
             }
 
-            item { SectionHeader("隨手小事") }
+            item { SectionHeader("隨手小事 · 只有開始時間") }
             if (quick.isEmpty()) {
-                item { EmptyHint("沒有時間的事會放這裡,例如輸入「買牛奶」") }
+                item { EmptyHint("沒有結束時間的事會放這裡,例如輸入「買牛奶」") }
             }
             items(quick, key = { it.id }) { r ->
                 ReminderRow(r, onToggle, onDelete)
@@ -448,7 +448,7 @@ private fun HomeScreen(
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
                 placeholder = {
-                    Text(if (pending == null) "例如:明天下午3點看牙醫" else "回答上面的問題…")
+                    Text(if (pending == null) "例如:明天下午3點到4點看牙醫" else "回答上面的問題…")
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { submit(input) }),
@@ -510,11 +510,19 @@ private fun ReminderRow(
     onToggle: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
 ) {
-    val at = r.triggerAt
-    val overdue = at != null && !r.done && at < System.currentTimeMillis()
+    val nowMs = System.currentTimeMillis()
+    val end = r.endAt
+    val ring = r.triggerAt
+    val overdue = !r.done && ring != null && (end ?: ring) < nowMs
+    val ongoing = !r.done && end != null && r.start <= nowMs && nowMs <= end
     val details = buildList<String> {
-        if (at != null) add(formatTrigger(at))
+        when {
+            end != null -> add(formatRange(r.start, end))
+            ring != null -> add(formatTrigger(r.start))
+            else -> add("記下於 " + formatTrigger(r.start))
+        }
         if (r.location.isNotBlank()) add(r.location)
+        if (ongoing) add("進行中")
         if (overdue) add("已過時")
     }
 

@@ -22,7 +22,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** 一筆排程提醒與它對應的本地時間。 */
-data class Item(val r: Reminder, val at: LocalDateTime)
+data class Item(val r: Reminder, val at: LocalDateTime, val end: LocalDateTime? = null)
 
 /** 每日確認用的行程整理。 */
 data class DayPlan(
@@ -63,15 +63,19 @@ object Briefing {
             .filter { !it.done }
             .mapNotNull { r ->
                 val t = r.triggerAt ?: return@mapNotNull null
-                Item(r, LocalDateTime.ofInstant(Instant.ofEpochMilli(t), zone))
+                Item(
+                    r,
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(t), zone),
+                    r.endAt?.let { LocalDateTime.ofInstant(Instant.ofEpochMilli(it), zone) },
+                )
             }
             .sortedBy { it.at }
         val today = now.toLocalDate()
         return DayPlan(
             now = now,
-            today = items.filter { it.at.toLocalDate() == today && !it.at.isBefore(now) },
+            today = items.filter { it.at.toLocalDate() == today && !(it.end ?: it.at).isBefore(now) },
             tomorrow = items.filter { it.at.toLocalDate() == today.plusDays(1) },
-            overdue = items.filter { it.at.isBefore(now) },
+            overdue = items.filter { (it.end ?: it.at).isBefore(now) },
             quick = all.filter { !it.done && it.triggerAt == null },
         )
     }
@@ -81,6 +85,7 @@ object Briefing {
             id = Assistant.newId(),
             title = title,
             triggerAt = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+            startAt = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
         )
 
     private fun withAction(
@@ -185,9 +190,16 @@ object Briefing {
         return (out + fallback).take(3)
     }
 
+    /** 「15:00」或「15:00–17:00」(跨日的結束時間前面加「隔天」)。 */
+    fun span(i: Item): String {
+        val e = i.end ?: return i.at.format(HM)
+        val day = if (e.toLocalDate() == i.at.toLocalDate()) "" else "隔天"
+        return i.at.format(HM) + "–" + day + e.format(HM)
+    }
+
     private fun itemLine(i: Item): String {
         val loc = if (i.r.location.isBlank()) "" else " @${i.r.location}"
-        return "- ${i.at.format(HM)} ${i.r.title}$loc"
+        return "- ${span(i)} ${i.r.title}$loc"
     }
 
     fun promptText(plan: DayPlan): String {
@@ -206,7 +218,7 @@ object Briefing {
         section("明天的排程", plan.tomorrow)
         if (plan.overdue.isNotEmpty()) section("已過時還沒完成", plan.overdue)
         if (plan.quick.isNotEmpty()) {
-            sb.append("還沒做的隨手小事:")
+            sb.append("還沒有時間的隨手小事:")
                 .append(plan.quick.take(10).joinToString("、") { it.title })
                 .append('\n')
         }

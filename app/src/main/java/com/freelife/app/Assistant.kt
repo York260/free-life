@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-enum class Kind { AMPM, TIME, LOCATION }
+enum class Kind { AMPM, TIME, LOCATION, START, END }
 
 sealed class Outcome {
     /** 資訊不夠,需要追問使用者。 */
@@ -25,6 +25,10 @@ sealed class Outcome {
 object Assistant {
     private val TIME_CHIPS = listOf("早上8點", "中午12點", "下午3點", "晚上7點")
     private val SKIP_WORDS = setOf("略過", "跳過", "不用", "沒有", "無", "不必", "skip")
+    private val START_CHIPS = listOf("現在", "1小時後", "今天晚上7點", "明天早上8點", "略過")
+    private val END_CHIPS = listOf("30分鐘", "1小時", "2小時", "沒有結束時間")
+    private val NOW_WORDS = setOf("現在", "馬上", "立刻", "立即", "now")
+    private val NO_END_WORDS = SKIP_WORDS + setOf("沒有結束時間", "沒有結束", "不知道", "不確定", "未定")
     private val PM_RE = Regex("下午|晚|午後|PM|pm")
     private val AM_RE = Regex("上午|早|凌晨|AM|am")
     private val dateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("M/d (E)", Locale.TAIWAN)
@@ -80,9 +84,74 @@ object Assistant {
                             needAmPm = need,
                             date = draft.date ?: p.date,
                             dateExplicit = draft.dateExplicit || p.dateExplicit,
+                            endTime = p.endTime ?: draft.endTime,
+                            endAmbig = if (p.endTime != null) p.endAmbig else draft.endAmbig,
+                            durationMin = p.durationMin ?: draft.durationMin,
+                            relative = draft.relative || p.relative,
                         ),
                         now,
                     )
+                }
+            }
+
+            Kind.START -> {
+                if (t.lowercase() in SKIP_WORDS || t in NOW_WORDS) {
+                    advance(draft.copy(askedStart = true), now)
+                } else {
+                    val p = ReminderParser.parse(t, now)
+                    if (p.date == null && p.time == null) {
+                        Outcome.Ask(
+                            draft, Kind.START,
+                            "我沒看懂時間,請再說一次,例如「今天晚上7點」「1小時後」,或按「現在」",
+                            START_CHIPS,
+                        )
+                    } else {
+                        advance(
+                            draft.copy(
+                                date = p.date,
+                                dateExplicit = p.dateExplicit,
+                                time = p.time,
+                                needAmPm = p.needAmPm,
+                                endTime = p.endTime,
+                                endAmbig = p.endAmbig,
+                                durationMin = p.durationMin,
+                                relative = p.relative,
+                                askedStart = true,
+                                // 隨手小事只有開始時間;除非這句話本身就說了結束時間
+                                noEnd = p.endTime == null && p.durationMin == null,
+                            ),
+                            now,
+                        )
+                    }
+                }
+            }
+
+            Kind.END -> {
+                if (t.lowercase() in NO_END_WORDS) {
+                    advance(draft.copy(askedEnd = true, noEnd = true), now)
+                } else {
+                    val dur = ReminderParser.parseDuration(t)
+                    val p = ReminderParser.parse(t, now)
+                    when {
+                        p.time != null -> advance(
+                            draft.copy(
+                                endTime = p.time,
+                                endAmbig = p.needAmPm,
+                                durationMin = null,
+                                askedEnd = true,
+                            ),
+                            now,
+                        )
+                        dur != null -> advance(
+                            draft.copy(durationMin = dur, endTime = null, askedEnd = true),
+                            now,
+                        )
+                        else -> Outcome.Ask(
+                            draft, Kind.END,
+                            "我沒看懂,請說「1小時」或「下午5點」,或按「沒有結束時間」",
+                            END_CHIPS,
+                        )
+                    }
                 }
             }
 
@@ -114,10 +183,38 @@ object Assistant {
         return date.format(dateFmt) + " "
     }
 
+    /** 結束時間:明確的結束時鐘,或開始加上持續時間;沒有就回傳 null。 */
+    private fun resolveEnd(d: Draft, start: LocalDateTime): LocalDateTime? {
+        val et = d.endTime
+        if (et != null) {
+            val a = LocalDateTime.of(start.toLocalDate(), et)
+            if (d.endAmbig && et.hour in 1..11) {
+                // 沒說上午下午:取開始之後最近的那一個
+                val b = a.plusHours(12)
+                return when {
+                    a.isAfter(start) -> a
+                    b.isAfter(start) -> b
+                    else -> a.plusDays(1)
+                }
+            }
+            return if (a.isAfter(start)) a else a.plusDays(1)
+        }
+        val mins = d.durationMin
+        if (mins != null) return start.plusMinutes(mins.toLong())
+        return null
+    }
+
     private fun advance(d: Draft, now: LocalDateTime): Outcome {
-        if (!d.scheduled) {
-            val r = Reminder(id = newId(), title = d.title, location = d.location)
-            return Outcome.Done(r, "已記下隨手小事:${d.title}")
+        val zone = ZoneId.systemDefault()
+
+        // 完全沒有日期時間:隨手小事,問什麼時候開始(可選「現在」)
+        if (d.date == null && d.time == null) {
+            if (!d.askedStart) {
+                return Outcome.Ask(d, Kind.START, "「${d.title}」什麼時候開始?", START_CHIPS)
+            }
+            val ms = now.atZone(zone).toInstant().toEpochMilli()
+            val r = Reminder(id = newId(), title = d.title, location = d.location, startAt = ms)
+            return Outcome.Done(r, "已記下隨手小事:${d.title}(開始時間 ${formatTrigger(ms)},不響鈴)")
         }
 
         val time = d.time
@@ -125,7 +222,7 @@ object Assistant {
         if (time == null) {
             return Outcome.Ask(
                 d, Kind.TIME,
-                "${dateLabel(d)}「${d.title}」要幾點提醒你?",
+                "${dateLabel(d)}「${d.title}」幾點開始?",
                 TIME_CHIPS,
             )
         }
@@ -145,15 +242,31 @@ object Assistant {
             if (!dt.isAfter(now)) {
                 return Outcome.Ask(
                     d.copy(time = null, needAmPm = false), Kind.TIME,
-                    "這個時間已經過了,請告訴我新的時間(例如「下午3點」)",
+                    "這個時間已經過了,請告訴我新的開始時間(例如「下午3點」)",
                     TIME_CHIPS,
                 )
             }
         }
 
-        val millis = dt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val r = Reminder(id = newId(), title = d.title, location = d.location, triggerAt = millis)
+        val end = resolveEnd(d, dt)
+        if (end == null && !d.relative && !d.noEnd && !d.askedEnd) {
+            return Outcome.Ask(d, Kind.END, "${formatTrigger(dt.atZone(zone).toInstant().toEpochMilli())}「${d.title}」到幾點結束?", END_CHIPS)
+        }
+
+        val startMs = dt.atZone(zone).toInstant().toEpochMilli()
         val where = if (d.location.isBlank()) "" else " @${d.location}"
-        return Outcome.Done(r, "已設定鬧鐘提醒:${formatTrigger(millis)} ${d.title}$where")
+        if (end != null) {
+            val endMs = end.atZone(zone).toInstant().toEpochMilli()
+            val r = Reminder(
+                id = newId(), title = d.title, location = d.location,
+                triggerAt = startMs, startAt = startMs, endAt = endMs,
+            )
+            return Outcome.Done(r, "已設定排程:${formatRange(startMs, endMs)} ${d.title}$where(開始時響鈴)")
+        }
+        val r = Reminder(
+            id = newId(), title = d.title, location = d.location,
+            triggerAt = startMs, startAt = startMs,
+        )
+        return Outcome.Done(r, "已記下隨手小事:${formatTrigger(startMs)} ${d.title}$where(開始時響鈴)")
     }
 }

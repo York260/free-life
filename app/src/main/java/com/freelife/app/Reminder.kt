@@ -9,8 +9,11 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * 一筆提醒。triggerAt 為 null 代表「隨手小事」(沒有時間,只是待辦);
- * 有 triggerAt 代表「排程」,到時間會用鬧鐘等級提醒。
+ * 一筆提醒。每一筆都有開始時間;
+ * - 排程:有開始與結束時間(endAt 不是 null)。
+ * - 隨手小事:只有開始時間。
+ * triggerAt 是響鈴時間,null 代表不響鈴(使用者沒有指定時間,開始時間就是記下它的時刻)。
+ * 延後響鈴只會改 triggerAt,不會改開始與結束時間。
  */
 data class Reminder(
     val id: Long,
@@ -18,15 +21,33 @@ data class Reminder(
     val location: String = "",
     val triggerAt: Long? = null,
     val done: Boolean = false,
+    val startAt: Long = 0L,
+    val endAt: Long? = null,
 ) {
-    val isScheduled: Boolean get() = triggerAt != null
+    /** 開始時間;舊資料沒有存開始時間,就用響鈴時間或建立時間。 */
+    val start: Long get() = if (startAt > 0L) startAt else (triggerAt ?: id)
+    val isScheduled: Boolean get() = endAt != null
 }
 
 private val timeFormatter: DateTimeFormatter =
     DateTimeFormatter.ofPattern("M/d (E) HH:mm", Locale.TAIWAN)
 
+private val hmFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+
 fun formatTrigger(millis: Long): String =
     Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(timeFormatter)
+
+/** 「10/8 (三) 15:00–17:00」;跨日時結束時間也帶日期。 */
+fun formatRange(startMs: Long, endMs: Long): String {
+    val zone = ZoneId.systemDefault()
+    val s = Instant.ofEpochMilli(startMs).atZone(zone)
+    val e = Instant.ofEpochMilli(endMs).atZone(zone)
+    return if (s.toLocalDate() == e.toLocalDate()) {
+        formatTrigger(startMs) + "–" + e.format(hmFormatter)
+    } else {
+        formatTrigger(startMs) + " – " + formatTrigger(endMs)
+    }
+}
 
 /** 以 SharedPreferences 存成 JSON,資料只留在手機上。 */
 object ReminderStore {
@@ -47,6 +68,8 @@ object ReminderStore {
                     location = o.optString("location", ""),
                     triggerAt = if (o.has("triggerAt") && !o.isNull("triggerAt")) o.getLong("triggerAt") else null,
                     done = o.optBoolean("done", false),
+                    startAt = o.optLong("startAt", 0L),
+                    endAt = if (o.has("endAt") && !o.isNull("endAt")) o.getLong("endAt") else null,
                 )
             }
         } catch (e: Exception) {
@@ -64,6 +87,8 @@ object ReminderStore {
             o.put("location", r.location)
             if (r.triggerAt != null) o.put("triggerAt", r.triggerAt)
             o.put("done", r.done)
+            if (r.startAt > 0L) o.put("startAt", r.startAt)
+            if (r.endAt != null) o.put("endAt", r.endAt)
             arr.put(o)
         }
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
