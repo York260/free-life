@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-enum class Kind { AMPM, TIME, LOCATION, START, END }
+enum class Kind { AMPM, TIME, LOCATION, START, END, REPEAT, LEAD }
 
 sealed class Outcome {
     /** 資訊不夠,需要追問使用者。 */
@@ -26,6 +26,10 @@ object Assistant {
     private val TIME_CHIPS = listOf("早上8點", "中午12點", "下午3點", "晚上7點")
     private val SKIP_WORDS = setOf("略過", "跳過", "不用", "沒有", "無", "不必", "skip")
     private val START_CHIPS = listOf("現在", "1小時後", "今天晚上7點", "明天早上8點", "略過")
+    private val REPEAT_CHIPS = listOf("不重複", "每天", "平日", "每週", "每月")
+    private val LEAD_CHIPS = listOf("準時", "提前10分鐘", "提前30分鐘", "提前1小時", "提前1天")
+    private val NO_WORDS = Regex("^(不用|不要|不必|不|沒有|無|略過|跳過|否|no)")
+    private val DAY_LEAD_RE = Regex("(\\d+|[一二兩三])\\s*天")
     private val END_CHIPS = listOf("30分鐘", "1小時", "2小時", "沒有結束時間")
     private val NOW_WORDS = setOf("現在", "馬上", "立刻", "立即", "now")
     private val NO_END_WORDS = SKIP_WORDS + setOf("沒有結束時間", "沒有結束", "不知道", "不確定", "未定")
@@ -159,6 +163,36 @@ object Assistant {
                 }
             }
 
+            Kind.REPEAT -> {
+                val code = when {
+                    NO_WORDS.containsMatchIn(t) || t.startsWith("不重複") -> ""
+                    t.contains("平日") || t.contains("工作日") -> "weekdays"
+                    t.contains("週") || t.contains("周") || t.contains("星期") || t.contains("禮拜") -> "weekly"
+                    t.contains("天") || t.contains("日") -> "daily"
+                    t.contains("月") -> "monthly"
+                    else -> null
+                }
+                if (code == null) {
+                    Outcome.Ask(draft, Kind.REPEAT, "我沒聽懂,請說「每天」「平日」「每週」「每月」,或按「不重複」", REPEAT_CHIPS)
+                } else {
+                    advance(draft.copy(repeat = code, askedRepeat = true), now)
+                }
+            }
+
+            Kind.LEAD -> {
+                val dayM = DAY_LEAD_RE.find(t)
+                val mins: Int? = when {
+                    t.contains("準時") || NO_WORDS.containsMatchIn(t) -> 0
+                    dayM != null -> (ReminderParser.cnToInt(dayM.groupValues[1]) ?: 1) * 1440
+                    else -> ReminderParser.parseDuration(t)
+                }
+                if (mins == null) {
+                    Outcome.Ask(draft, Kind.LEAD, "我沒聽懂,請說「10分鐘」「1小時」「1天」,或按「準時」", LEAD_CHIPS)
+                } else {
+                    advance(draft.copy(leadMin = mins, askedLead = true), now)
+                }
+            }
+
             Kind.LOCATION -> {
                 val skip = t.lowercase() in SKIP_WORDS
                 advance(
@@ -263,6 +297,16 @@ object Assistant {
         val end = resolveEnd(d, dt)
         if (end == null && !d.relative && !d.noEnd && !d.askedEnd) {
             return Outcome.Ask(d, Kind.END, "${formatTrigger(dt.atZone(zone).toInstant().toEpochMilli())}「${d.title}」到幾點結束?", END_CHIPS)
+        }
+
+        // 主動問:要不要重複、要不要提前提醒(「10分鐘後」這種臨時的不用問)
+        if (!d.relative) {
+            if (!d.askedRepeat && d.repeat.isEmpty()) {
+                return Outcome.Ask(d, Kind.REPEAT, "「${d.title}」要重複嗎?", REPEAT_CHIPS)
+            }
+            if (!d.askedLead && d.leadMin == 0) {
+                return Outcome.Ask(d, Kind.LEAD, "要提前提醒嗎?", LEAD_CHIPS)
+            }
         }
 
         val startMs = dt.atZone(zone).toInstant().toEpochMilli()

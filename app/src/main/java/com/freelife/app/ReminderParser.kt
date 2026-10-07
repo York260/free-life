@@ -30,6 +30,8 @@ data class Draft(
     val noEnd: Boolean = false,
     val repeat: String = "",
     val leadMin: Int = 0,
+    val askedRepeat: Boolean = false,
+    val askedLead: Boolean = false,
 )
 
 /** 不需要網路、不需要 AI 的中文日期時間解析(第一版)。 */

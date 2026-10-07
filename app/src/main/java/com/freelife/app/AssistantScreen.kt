@@ -165,13 +165,9 @@ fun AssistantScreen(
         }
         // 省錢模式:單純、一句話講完的記事,規則就能處理,不花 AI 費用
         if (thrift && !aiWaiting && looksSimple(t)) {
-            val quick = Assistant.start(t, LocalDateTime.now())
-            if (quick is Outcome.Done) {
-                val note = conflictNote(listOf(quick.reminder))
-                onAdd(quick.reminder)
-                history.add(ChatMsg(true, t))
-                history.add(ChatMsg(false, quick.message))
-                say(ChatItem(false, quick.message, created = listOf(quick.reminder), note = note), false)
+            val d = ReminderParser.parse(t, LocalDateTime.now())
+            if (d.date != null || d.time != null) {
+                ruleReply(t)
                 return
             }
         }
