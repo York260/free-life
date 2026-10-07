@@ -65,6 +65,13 @@ object AppSettings {
         prefs(ctx).edit().putBoolean("converse", value).apply()
     }
 
+    /** 省錢模式(預設開):簡單的記事句子用內建規則處理,不叫 AI。 */
+    fun thrift(ctx: Context): Boolean = prefs(ctx).getBoolean("thrift", true)
+
+    fun setThrift(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("thrift", value).apply()
+    }
+
     fun apiKey(ctx: Context): String = prefs(ctx).getString("api_key", "") ?: ""
 
     fun setApiKey(ctx: Context, value: String) {

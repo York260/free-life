@@ -45,14 +45,15 @@ object Persona {
             .filter { !it.done && (it.triggerAt != null || it.endAt != null) }
             .sortedBy { it.start }
             .filter { (it.endAt ?: it.start) >= now.atZone(zone).toInstant().toEpochMilli() }
-            .take(25)
+            .filter { it.start <= now.plusDays(7).atZone(zone).toInstant().toEpochMilli() }
+            .take(15)
             .map { r ->
                 val span = if (r.endAt != null) formatRange(r.start, r.endAt) else formatTrigger(r.start)
                 val loc = if (r.location.isBlank()) "" else " @${r.location}"
                 val rep = if (r.repeat.isEmpty()) "" else "(${Repeat.label(r.repeat)}重複)"
                 "- $span ${r.title}$loc$rep"
             }
-        val quick = reminders.filter { !it.done && it.triggerAt == null && it.endAt == null }.take(10)
+        val quick = reminders.filter { !it.done && it.triggerAt == null && it.endAt == null }.take(5)
         val sb = StringBuilder()
         sb.append(if (lines.isEmpty()) "(目前沒有排程)\n" else lines.joinToString("\n") + "\n")
         if (quick.isNotEmpty()) sb.append("沒有時間的小任務:").append(quick.joinToString("、") { it.title }).append('\n')
@@ -79,7 +80,7 @@ object Persona {
         base(ctx) + "\n\n" +
             "現在是 ${now.format(FULL)}(台灣時間)。\n" +
             dateTable(now.toLocalDate()) + "\n\n" +
-            "使用者目前未完成的行程:\n" + scheduleLines(reminders, now) + "\n" +
+            "使用者未來 7 天內未完成的行程(更久以後的未列出):\n" + scheduleLines(reminders, now) + "\n" +
             "你的工作:把使用者說的話變成提醒;或回答和行程有關的問題;或簡短閒聊。\n" +
             "只輸出一個 JSON 物件,不要任何其他文字,格式:\n" +
             "{\"say\":\"對使用者說的話\",\"ask\":false,\"reminders\":[{\"title\":\"帶文件\",\"location\":\"\"," +
@@ -120,7 +121,7 @@ object AiAssistant {
 
     /** 跟 AI 講一輪話,並把它拆出來的提醒轉成 Reminder(還沒存檔)。 */
     fun respond(ctx: Context, history: List<ChatMsg>, now: LocalDateTime, reminders: List<Reminder>): AiTurn {
-        val raw = Llm.chat(ctx, Persona.chatSystem(ctx, now, reminders), history, 700)
+        val raw = Llm.chat(ctx, Persona.chatSystem(ctx, now, reminders), history, 450)
         val obj = Llm.extractObject(raw)
         val say = obj.optString("say").trim()
         val ask = obj.optBoolean("ask", false)

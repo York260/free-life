@@ -85,6 +85,9 @@ fun AssistantScreen(
     var pendingAsk by remember { mutableStateOf<Outcome.Ask?>(null) }
     var voiceReply by remember { mutableStateOf(AppSettings.voiceReply(ctx)) }
     var converse by remember { mutableStateOf(AppSettings.converse(ctx)) }
+    var thrift by remember { mutableStateOf(AppSettings.thrift(ctx)) }
+    // AI 剛問了問題、正在等你回答時,下一句一定交給 AI
+    var aiWaiting by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val speaker = remember { Speaker(ctx) }
     // 麥克風回傳時要呼叫 send,但 send 在後面才定義,用一個容器接起來
@@ -156,13 +159,25 @@ fun AssistantScreen(
         input = ""
         speaker.stop()
         items.add(ChatItem(true, t))
-        if (!aiOn) {
+        if (!aiOn || pendingAsk != null) {
             ruleReply(t)
             return
         }
+        // 省錢模式:單純、一句話講完的記事,規則就能處理,不花 AI 費用
+        if (thrift && !aiWaiting && looksSimple(t)) {
+            val quick = Assistant.start(t, LocalDateTime.now())
+            if (quick is Outcome.Done) {
+                val note = conflictNote(listOf(quick.reminder))
+                onAdd(quick.reminder)
+                history.add(ChatMsg(true, t))
+                history.add(ChatMsg(false, quick.message))
+                say(ChatItem(false, quick.message, created = listOf(quick.reminder), note = note), false)
+                return
+            }
+        }
         busy = true
         history.add(ChatMsg(true, t))
-        val sent = history.toList().takeLast(14)
+        val sent = history.toList().takeLast(10)
         val snapshot = reminders.toList()
         Thread {
             val result = try {
@@ -177,6 +192,7 @@ fun AssistantScreen(
                     val note = conflictNote(turn.created)
                     turn.created.forEach { onAdd(it) }
                     history.add(ChatMsg(false, turn.say))
+                    aiWaiting = turn.ask
                     say(ChatItem(false, turn.say, created = turn.created, note = note), turn.ask)
                 } else {
                     history.removeAt(history.size - 1)
@@ -235,6 +251,11 @@ fun AssistantScreen(
                 voiceReply = it
                 AppSettings.setVoiceReply(ctx, it)
                 if (!it) speaker.stop()
+            })
+            Text("省錢模式", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
+            Switch(checked = thrift, onCheckedChange = {
+                thrift = it
+                AppSettings.setThrift(ctx, it)
             })
             Text("連續對話", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
             Switch(checked = converse, onCheckedChange = {
@@ -366,3 +387,11 @@ private fun Bubble(
         }
     }
 }
+
+private val CHAT_HINTS = Regex(
+    "[?？嗎呢吧啊]|什麼|甚麼|哪|怎麼|為什麼|幾|有空|有沒有|是不是|你|謝|早安|晚安|哈|累|建議|查|看一下|" +
+        "也|另外|還有|然後|並且|前一天|前一晚|前兩天|隔天|再提醒|取消|刪除|改成|改到|調整",
+)
+
+/** 短短一句、沒有疑問和多重要求的記事,才交給免費的規則解析。 */
+private fun looksSimple(t: String): Boolean = t.length <= 40 && !CHAT_HINTS.containsMatchIn(t)
