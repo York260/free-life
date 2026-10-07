@@ -97,6 +97,72 @@ object Briefing {
     ): Suggestion =
         if (at.isAfter(now)) Suggestion(text, label, remind(title, at)) else Suggestion(text)
 
+    fun hello(now: LocalDateTime): String =
+        if (now.hour < 11) "早安" else if (now.hour < 18) "午安" else "晚安"
+
+    /** 今天(8 點到 18 點、現在之後)最長的一段空檔,至少 60 分鐘;沒有就回傳 null。 */
+    fun freeSlot(plan: DayPlan): Pair<LocalDateTime, LocalDateTime>? {
+        val day = plan.now.toLocalDate()
+        val dayStart = LocalDateTime.of(day, LocalTime.of(8, 0))
+        val dayEnd = LocalDateTime.of(day, LocalTime.of(18, 0))
+        var cursor = if (plan.now.isAfter(dayStart)) plan.now else dayStart
+        if (!cursor.isBefore(dayEnd)) return null
+        var best: Pair<LocalDateTime, LocalDateTime>? = null
+
+        fun consider(from: LocalDateTime, to: LocalDateTime) {
+            val mins = java.time.Duration.between(from, to).toMinutes()
+            if (mins < 60) return
+            val b = best
+            if (b == null || mins > java.time.Duration.between(b.first, b.second).toMinutes()) {
+                best = Pair(from, to)
+            }
+        }
+
+        for (it in plan.today) {
+            val s = it.at
+            val e = it.end ?: it.at.plusMinutes(15)
+            if (s.isAfter(cursor)) consider(cursor, if (s.isBefore(dayEnd)) s else dayEnd)
+            if (e.isAfter(cursor)) cursor = e
+            if (!cursor.isBefore(dayEnd)) break
+        }
+        if (cursor.isBefore(dayEnd)) consider(cursor, dayEnd)
+        return best
+    }
+
+    private fun durationText(from: LocalDateTime, to: LocalDateTime): String {
+        val mins = java.time.Duration.between(from, to).toMinutes().toInt()
+        val h = mins / 60
+        val r = mins % 60
+        return when {
+            h == 0 -> "$r 分鐘"
+            r == 0 -> "$h 小時"
+            else -> "$h 小時 $r 分鐘"
+        }
+    }
+
+    /** 不需要 AI 的簡報問候:用你設定的稱呼與語氣,講今天的件數與空檔。 */
+    fun greeting(ctx: Context, plan: DayPlan): String {
+        val sb = StringBuilder("${hello(plan.now)},${AppSettings.address(ctx)}。")
+        val next = plan.today.firstOrNull()
+        if (next == null) {
+            sb.append("今天剩下的時間沒有排程。")
+        } else {
+            sb.append("今天還有 ${plan.today.size} 件事,下一件是 ${next.at.format(HM)} 的「${next.r.title}」。")
+        }
+        val slot = freeSlot(plan)
+        if (slot != null) {
+            sb.append("${slot.first.format(HM)} 到 ${slot.second.format(HM)} 是空檔(約 ${durationText(slot.first, slot.second)}),")
+            sb.append(
+                if (plan.quick.isNotEmpty()) "可以先處理小任務「${plan.quick.first().title}」。" else "可以留給自己。",
+            )
+        }
+        when (AppSettings.tone(ctx)) {
+            "witty" -> sb.append("時間由我盯著,請放心。")
+            "warm" -> sb.append("今天也加油,有我在。")
+        }
+        return sb.toString()
+    }
+
     /** 內建規則建議:不需要網路,最多回傳三點。 */
     fun rules(plan: DayPlan): List<Suggestion> {
         val now = plan.now
@@ -269,6 +335,34 @@ object Briefing {
             .take(3)
     }
 
+    /** 請 AI 以助理的個性寫簡報問候,並給三點建議;失敗會丟出 IOException,由呼叫端退回內建版本。 */
+    fun aiBriefing(ctx: Context, plan: DayPlan): Pair<String, List<String>> {
+        val system = Persona.base(ctx) + "\n\n" +
+            "你要寫今天的早晨簡報,並提出恰好三點具體、可以馬上行動的建議。" +
+            "常見的好建議:預約或看診前先打電話確認、隔天很早有事就建議設起床鬧鐘、" +
+            "中午有會議或勤務就提早買午餐、行程之間留交通時間、已過時沒完成的事要處理、" +
+            "把空檔拿來處理小任務。\n" +
+            "只輸出 JSON:{\"greeting\":\"2到3句問候與今天概況,可以提到空檔與建議先處理的小任務,依你的個性說話\"," +
+            "\"suggestions\":[\"建議一\",\"建議二\",\"建議三\"]}。每點建議一句話,不超過 40 字。"
+        val slot = freeSlot(plan)
+        val slotLine = if (slot == null) {
+            "\n今天沒有超過一小時的空檔。"
+        } else {
+            "\n今天的空檔:${slot.first.format(HM)} 到 ${slot.second.format(HM)}(約 ${durationText(slot.first, slot.second)})。"
+        }
+        val raw = Llm.chat(ctx, system, listOf(ChatMsg(true, promptText(plan) + slotLine)), 700)
+        val obj = Llm.extractObject(raw)
+        val arr = obj.optJSONArray("suggestions")
+        val list = if (arr == null) {
+            emptyList()
+        } else {
+            (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotEmpty() }.take(3)
+        }
+        if (list.isEmpty()) throw IOException("AI 回覆的格式無法解析")
+        val g = obj.optString("greeting").trim().ifEmpty { greeting(ctx, plan) }
+        return Pair(g, list)
+    }
+
     /** 呼叫 Claude 產生三點建議;失敗會丟出 IOException,由呼叫端退回內建建議。 */
     fun aiSuggestions(apiKey: String, model: String, plan: DayPlan): List<String> {
         val raw = ClaudeClient.complete(apiKey, model, SYSTEM_PROMPT, promptText(plan), 500)
@@ -282,15 +376,22 @@ object Briefing {
 object ClaudeClient {
     private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
 
-    fun complete(apiKey: String, model: String, system: String, user: String, maxTokens: Int): String {
+    fun complete(apiKey: String, model: String, system: String, user: String, maxTokens: Int): String =
+        chat(apiKey, model, system, listOf(ChatMsg(true, user)), maxTokens)
+
+    /** 多輪對話:history 要由使用者開頭、角色交替。 */
+    fun chat(apiKey: String, model: String, system: String, history: List<ChatMsg>, maxTokens: Int): String {
+        val messages = JSONArray()
+        history.forEach { m ->
+            messages.put(
+                JSONObject().put("role", if (m.fromUser) "user" else "assistant").put("content", m.text),
+            )
+        }
         val body = JSONObject()
             .put("model", model)
             .put("max_tokens", maxTokens)
             .put("system", system)
-            .put(
-                "messages",
-                JSONArray().put(JSONObject().put("role", "user").put("content", user)),
-            )
+            .put("messages", messages)
 
         val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
         try {
@@ -397,7 +498,7 @@ object BriefingNotifier {
         val text = "今天還有 ${plan.today.size} 件排程,明天 ${plan.tomorrow.size} 件。點開確認並看三點建議。"
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_bell)
-            .setContentTitle("早安,確認今天的行程")
+            .setContentTitle("${Briefing.hello(LocalDateTime.now())},${AppSettings.address(ctx)}。確認今天的行程")
             .setContentText(text)
             .setContentIntent(open)
             .setAutoCancel(true)

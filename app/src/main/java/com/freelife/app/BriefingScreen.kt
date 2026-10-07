@@ -1,6 +1,8 @@
 package com.freelife.app
 
 import android.app.TimePickerDialog
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +24,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +36,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import java.time.LocalDateTime
 
-enum class Screen { HOME, BRIEFING, SETTINGS }
+enum class Screen { HOME, BRIEFING, SETTINGS, ASSISTANT }
 
 private fun itemText(i: Item): String {
     val loc = if (i.r.location.isBlank()) "" else " @${i.r.location}"
@@ -73,27 +76,47 @@ fun BriefingScreen(
     var suggestions by remember { mutableStateOf<List<Suggestion>?>(null) }
     var note by remember { mutableStateOf<String?>(null) }
     var added by remember { mutableStateOf(setOf<Int>()) }
+    var greeting by remember { mutableStateOf(Briefing.greeting(ctx, plan)) }
+    val speaker = remember { Speaker(ctx) }
+    val main = remember { Handler(Looper.getMainLooper()) }
+
+    DisposableEffect(Unit) {
+        onDispose { speaker.shutdown() }
+    }
+
+    fun readAloud(g: String, list: List<Suggestion>) {
+        val body = list.mapIndexed { i, s -> "第${i + 1}點,${s.text}" }.joinToString("。")
+        speaker.speak(if (list.isEmpty()) g else "$g。$body")
+    }
 
     fun generate() {
         val rules = Briefing.rules(plan)
-        val apiKey = AppSettings.apiKey(ctx)
-        if (apiKey.isBlank()) {
+        if (!Llm.configured(ctx)) {
             suggestions = rules
-            note = "目前使用內建建議。到「設定」填入 Claude API 金鑰,可改由 AI 產生。"
+            note = "目前使用內建建議。到「設定」填入 Claude API 金鑰,可改由 AI 產生,並用你設定的個性說話。"
+            if (AppSettings.voiceReply(ctx)) readAloud(greeting, rules)
             return
         }
         loading = true
-        val model = AppSettings.model(ctx)
         Thread {
-            try {
-                val ai = Briefing.aiSuggestions(apiKey, model, plan)
-                suggestions = ai.map { Suggestion(it) }
-                note = "由 Claude 產生($model)。行程標題會送到 Anthropic 的伺服器。"
+            val result = try {
+                Result.success(Briefing.aiBriefing(ctx, plan))
             } catch (e: Exception) {
-                suggestions = rules
-                note = "AI 連線失敗,改用內建建議。原因:${e.message}"
+                Result.failure(e)
             }
-            loading = false
+            main.post {
+                val ok = result.getOrNull()
+                if (ok != null) {
+                    greeting = ok.first
+                    suggestions = ok.second.map { Suggestion(it) }
+                    note = "由 Claude 產生。行程標題會送到 Anthropic 的伺服器。"
+                } else {
+                    suggestions = rules
+                    note = "AI 連線失敗,改用內建建議。原因:${result.exceptionOrNull()?.message}"
+                }
+                loading = false
+                if (AppSettings.voiceReply(ctx)) readAloud(greeting, suggestions ?: emptyList())
+            }
         }.start()
     }
 
@@ -119,6 +142,13 @@ fun BriefingScreen(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
         ) {
+            Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text(
+                    text = greeting,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
             PlanSection("今天剩下的", plan.today)
             PlanSection("明天", plan.tomorrow)
             if (plan.overdue.isNotEmpty()) PlanSection("已過時還沒完成", plan.overdue)
@@ -191,6 +221,7 @@ fun BriefingScreen(
                     )
                 }
                 Row(modifier = Modifier.padding(top = 8.dp)) {
+                    TextButton(onClick = { readAloud(greeting, list) }) { Text("🔊 朗讀") }
                     TextButton(onClick = onOpenSettings) { Text("設定") }
                 }
                 Button(
@@ -214,6 +245,9 @@ fun SettingsScreen(onBack: () -> Unit) {
     var minutes by remember { mutableStateOf(AppSettings.briefingMinutes(ctx)) }
     var key by remember { mutableStateOf(AppSettings.apiKey(ctx)) }
     var model by remember { mutableStateOf(AppSettings.model(ctx)) }
+    var aName by remember { mutableStateOf(AppSettings.assistantName(ctx).let { if (it == "小助") "" else it }) }
+    var aAddress by remember { mutableStateOf(AppSettings.address(ctx).let { if (it == "長官") "" else it }) }
+    var tone by remember { mutableStateOf(AppSettings.tone(ctx)) }
     var conflictAsk by remember { mutableStateOf(AppSettings.conflictAsk(ctx)) }
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
@@ -312,14 +346,63 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
 
             Text(
-                text = "Claude AI 建議(選填)",
+                text = "助理個性",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            OutlinedTextField(
+                value = aName,
+                onValueChange = {
+                    aName = it
+                    AppSettings.setAssistantName(ctx, it)
+                },
+                label = { Text("助理的名字(預設:小助)") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
+            OutlinedTextField(
+                value = aAddress,
+                onValueChange = {
+                    aAddress = it
+                    AppSettings.setAddress(ctx, it)
+                },
+                label = { Text("助理怎麼稱呼你(預設:長官)") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
+            Text(
+                text = "語氣(需要接 AI 才會完整呈現)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Persona.TONES.forEach { (code, label) ->
+                    if (tone == code) {
+                        Button(onClick = {}) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = {
+                            tone = code
+                            AppSettings.setTone(ctx, code)
+                        }) { Text(label) }
+                    }
+                }
+            }
+
+            Text(
+                text = "AI 助理(選填)",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 24.dp),
             )
             Text(
-                text = "不填也能用,會使用內建建議。填入 API 金鑰後,按「確認行程」時會把今明兩天的行程標題送到 Anthropic 由 Claude 產生建議," +
-                    "依用量計費(每天一次通常很少)。金鑰只存在這支手機裡。",
+                text = "不填也能用,會使用內建規則。填入 Claude API 金鑰後,助理才能聽懂整句話、把一句話拆成多筆提醒、" +
+                    "缺資訊時反問,並用你設定的個性說話。使用 AI 時,你的行程標題與時間會送到 Anthropic 的伺服器。Claude API 依用量計費,與 Claude Pro 訂閱分開。金鑰只存在這支手機裡。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),
@@ -333,7 +416,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 label = { Text("Claude API 金鑰") },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
             )
             OutlinedTextField(
                 value = model,
@@ -341,7 +426,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     model = it
                     AppSettings.setModel(ctx, it)
                 },
-                label = { Text("模型") },
+                label = { Text("Claude 模型") },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -354,13 +439,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                     val k = key.trim()
                     val m = model.trim().ifEmpty { DEFAULT_MODEL }
                     Thread {
-                        testResult = try {
-                            ClaudeClient.complete(k, m, "你是測試用助理。", "只回答:OK", 20)
-                            "連線成功,金鑰可用。"
-                        } catch (e: Exception) {
-                            "失敗:${e.message}"
+                        val err = Llm.test(k, m)
+                        Handler(Looper.getMainLooper()).post {
+                            testResult = if (err == null) "連線成功,金鑰可用。" else "失敗:$err"
+                            testing = false
                         }
-                        testing = false
                     }.start()
                 },
                 enabled = key.isNotBlank() && !testing,

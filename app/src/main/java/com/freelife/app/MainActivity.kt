@@ -121,6 +121,15 @@ class MainActivity : ComponentActivity() {
                             onTestAlarm = { testAlarm() },
                             onOpenBriefing = { screen = Screen.BRIEFING },
                             onOpenSettings = { screen = Screen.SETTINGS },
+                            onOpenAssistant = { screen = Screen.ASSISTANT },
+                        )
+
+                        Screen.ASSISTANT -> AssistantScreen(
+                            reminders = reminders,
+                            onAdd = { addReminder(it) },
+                            onDelete = { deleteReminder(it) },
+                            onBack = { screen = Screen.HOME },
+                            onOpenSettings = { screen = Screen.SETTINGS },
                         )
 
                         Screen.BRIEFING -> BriefingScreen(
@@ -308,6 +317,7 @@ private fun HomeScreen(
     onTestAlarm: () -> Unit,
     onOpenBriefing: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<Outcome.Ask?>(null) }
@@ -369,6 +379,7 @@ private fun HomeScreen(
             modifier = Modifier.padding(bottom = 4.dp),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onOpenAssistant) { Text("🎤 助理") }
             OutlinedButton(onClick = onOpenBriefing) { Text("☀ 每日確認") }
             TextButton(onClick = onOpenSettings) { Text("設定") }
         }

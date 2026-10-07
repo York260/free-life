@@ -31,6 +31,40 @@ object AppSettings {
         prefs(ctx).edit().putBoolean("conflict_ask", value).apply()
     }
 
+    /** 助理的名字、對使用者的稱呼、語氣(witty / concise / warm)。 */
+    fun assistantName(ctx: Context): String =
+        (prefs(ctx).getString("assistant_name", "") ?: "").ifBlank { "小助" }
+
+    fun setAssistantName(ctx: Context, value: String) {
+        prefs(ctx).edit().putString("assistant_name", value.trim()).apply()
+    }
+
+    fun address(ctx: Context): String =
+        (prefs(ctx).getString("address", "") ?: "").ifBlank { "長官" }
+
+    fun setAddress(ctx: Context, value: String) {
+        prefs(ctx).edit().putString("address", value.trim()).apply()
+    }
+
+    fun tone(ctx: Context): String = prefs(ctx).getString("tone", "witty") ?: "witty"
+
+    fun setTone(ctx: Context, value: String) {
+        prefs(ctx).edit().putString("tone", value).apply()
+    }
+
+    /** 助理的回覆是否用語音朗讀;連續對話 = 助理問完問題後自動開啟麥克風。 */
+    fun voiceReply(ctx: Context): Boolean = prefs(ctx).getBoolean("voice_reply", false)
+
+    fun setVoiceReply(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("voice_reply", value).apply()
+    }
+
+    fun converse(ctx: Context): Boolean = prefs(ctx).getBoolean("converse", false)
+
+    fun setConverse(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("converse", value).apply()
+    }
+
     fun apiKey(ctx: Context): String = prefs(ctx).getString("api_key", "") ?: ""
 
     fun setApiKey(ctx: Context, value: String) {

@@ -82,7 +82,7 @@ class PreMeetingReceiver : BroadcastReceiver() {
         )
         val n = NotificationCompat.Builder(context, HEADS_UP_CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_bell)
-            .setContentTitle("10 分鐘後:${meeting.title}")
+            .setContentTitle("${AppSettings.address(context)},10 分鐘後:${meeting.title}")
             .setContentText("${formatRange(meeting.start, end)},期間有提醒會先靜音:$names$more")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
