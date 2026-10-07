@@ -86,7 +86,24 @@ object ReminderParser {
                 else -> sb.append(c)
             }
         }
-        return sb.toString()
+        return fixSpokenMinutes(sb.toString())
+    }
+
+    private val SPOKEN_MIN_RE = Regex("([點点])([零〇一二兩三四五六七八九十]{1,3})(分)?+(?![小個鐘人元塊公歲年])")
+    private val BARE_MIN_RE = Regex("([點点])(\\d{1,2})(?![\\d分號号日月:])")
+
+    /** 語音常出現「十二點二十分」「3點20」:分鐘改成阿拉伯數字並補上「分」。 */
+    private fun fixSpokenMinutes(s: String): String {
+        var out = SPOKEN_MIN_RE.replace(s) { m ->
+            val raw = m.groupValues[2].trimStart('零', '〇').ifEmpty { "0" }
+            val n = cnToInt(raw)
+            if (n == null || n !in 1..59) m.value else "${m.groupValues[1]}${n}分"
+        }
+        out = BARE_MIN_RE.replace(out) { m ->
+            val n = m.groupValues[2].toInt()
+            if (n in 1..59) "${m.groupValues[1]}${n}分" else m.value
+        }
+        return out
     }
 
     /** 阿拉伯數字或中文數字(到 99)轉整數。 */

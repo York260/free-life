@@ -72,6 +72,27 @@ object AppSettings {
         prefs(ctx).edit().putBoolean("thrift", value).apply()
     }
 
+    /** 自訂鬧鐘鈴聲(uri 字串),空字串 = 系統預設鬧鐘。 */
+    fun alarmSound(ctx: Context): String = prefs(ctx).getString("alarm_sound", "") ?: ""
+
+    fun setAlarmSound(ctx: Context, value: String) {
+        prefs(ctx).edit().putString("alarm_sound", value).apply()
+    }
+
+    /** 鬧鐘音量比例 20–100(乘在系統鬧鐘音量上)。 */
+    fun alarmVolume(ctx: Context): Int = prefs(ctx).getInt("alarm_volume", 100).coerceIn(20, 100)
+
+    fun setAlarmVolume(ctx: Context, value: Int) {
+        prefs(ctx).edit().putInt("alarm_volume", value.coerceIn(20, 100)).apply()
+    }
+
+    /** 鈴聲漸強:從小聲慢慢變大。 */
+    fun alarmFade(ctx: Context): Boolean = prefs(ctx).getBoolean("alarm_fade", false)
+
+    fun setAlarmFade(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("alarm_fade", value).apply()
+    }
+
     fun apiKey(ctx: Context): String = prefs(ctx).getString("api_key", "") ?: ""
 
     fun setApiKey(ctx: Context, value: String) {

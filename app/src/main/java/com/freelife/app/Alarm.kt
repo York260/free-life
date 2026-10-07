@@ -321,6 +321,7 @@ class AlarmService : Service() {
     private fun startSound() {
         // 依序嘗試:使用者設定的鬧鐘鈴聲 → 系統預設鬧鐘 → 預設通知音 → 預設鈴聲
         val candidates = listOfNotNull(
+            AlarmSound.chosen(this),
             RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM),
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
@@ -334,9 +335,13 @@ class AlarmService : Service() {
                 mp.setDataSource(this, uri)
                 mp.isLooping = true
                 mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
+                val target = AppSettings.alarmVolume(this) / 100f
+                val fade = AppSettings.alarmFade(this)
+                mp.setVolume(if (fade) target * 0.15f else target, if (fade) target * 0.15f else target)
                 mp.prepare()
                 mp.start()
                 player = mp
+                if (fade) startFade(target)
                 return
             } catch (e: Exception) {
                 lastError = e
@@ -344,6 +349,28 @@ class AlarmService : Service() {
             }
         }
         if (lastError != null) CrashLog.save(this, lastError)
+    }
+
+    private var fadeStep = 0
+    private val fadeRunnable = object : Runnable {
+        override fun run() {
+            val mp = player ?: return
+            fadeStep++
+            val target = AppSettings.alarmVolume(this@AlarmService) / 100f
+            val v = target * (0.15f + 0.85f * (fadeStep / 20f)).coerceAtMost(1f)
+            try {
+                mp.setVolume(v, v)
+            } catch (ignored: Exception) {
+            }
+            if (fadeStep < 20) handler.postDelayed(this, 1000L)
+        }
+    }
+
+    /** 20 秒內從小聲慢慢變到設定的音量。 */
+    private fun startFade(target: Float) {
+        fadeStep = 0
+        handler.removeCallbacks(fadeRunnable)
+        handler.postDelayed(fadeRunnable, 1000L)
     }
 
     @Suppress("DEPRECATION")
@@ -502,6 +529,7 @@ class AlarmService : Service() {
     private fun stopPlayback() {
         handler.removeCallbacks(autoStop)
         handler.removeCallbacks(escalate)
+        handler.removeCallbacks(fadeRunnable)
         try {
             player?.stop()
         } catch (ignored: Exception) {

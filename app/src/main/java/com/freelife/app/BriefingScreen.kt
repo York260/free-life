@@ -20,11 +20,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import android.content.Intent
+import android.media.RingtoneManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -254,6 +259,21 @@ fun SettingsScreen(onBack: () -> Unit) {
     var conflictAsk by remember { mutableStateOf(AppSettings.conflictAsk(ctx)) }
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
+    var soundName by remember { mutableStateOf(AlarmSound.title(ctx)) }
+    var volume by remember { mutableStateOf(AppSettings.alarmVolume(ctx).toFloat()) }
+    var fade by remember { mutableStateOf(AppSettings.alarmFade(ctx)) }
+    val soundPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK) {
+            @Suppress("DEPRECATION")
+            val u = res.data?.getParcelableExtra<android.net.Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            // 選到「預設」時系統會回傳預設鬧鐘的 uri;存成空字串代表跟著系統
+            val isDefault = u == null || u == RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            AppSettings.setAlarmSound(ctx, if (isDefault) "" else u.toString())
+            soundName = AlarmSound.title(ctx)
+            AlarmSound.preview(ctx)
+        }
+    }
+    DisposableEffect(Unit) { onDispose { AlarmSound.stopPreview() } }
 
     Column(
         modifier = Modifier
@@ -314,6 +334,62 @@ fun SettingsScreen(onBack: () -> Unit) {
                 },
             ) {
                 Text("提醒時間:%02d:%02d(點此修改)".format(minutes / 60, minutes % 60))
+            }
+
+            Text(
+                text = "鬧鐘鈴聲",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            Text(
+                text = "目前:$soundName",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = {
+                    val i = Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+                        .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                        .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "選擇鬧鐘鈴聲")
+                        .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                        .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                        .putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_EXISTING_URI,
+                            AlarmSound.chosen(ctx) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                        )
+                    soundPicker.launch(i)
+                }) { Text("選擇鈴聲") }
+                TextButton(onClick = { AlarmSound.preview(ctx) }) { Text("試聽 5 秒") }
+                TextButton(onClick = {
+                    AppSettings.setAlarmSound(ctx, "")
+                    soundName = AlarmSound.title(ctx)
+                }) { Text("恢復預設") }
+            }
+            Text(
+                text = "音量 ${volume.toInt()}%(再乘上手機的鬧鐘音量)",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Slider(
+                value = volume,
+                onValueChange = { volume = it },
+                onValueChangeFinished = { AppSettings.setAlarmVolume(ctx, volume.toInt()) },
+                valueRange = 20f..100f,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "漸強:20 秒內從小聲慢慢變大",
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
+                Switch(checked = fade, onCheckedChange = {
+                    fade = it
+                    AppSettings.setAlarmFade(ctx, it)
+                })
             }
 
             Text(

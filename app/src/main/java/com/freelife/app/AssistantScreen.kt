@@ -88,6 +88,8 @@ fun AssistantScreen(
     var thrift by remember { mutableStateOf(AppSettings.thrift(ctx)) }
     // AI 剛問了問題、正在等你回答時,下一句一定交給 AI
     var aiWaiting by remember { mutableStateOf(false) }
+    // 語音辨識的其他候選,點一下可以換掉輸入框裡的字
+    var alts by remember { mutableStateOf<List<String>>(emptyList()) }
     val listState = rememberLazyListState()
     val speaker = remember { Speaker(ctx) }
     // 麥克風回傳時要呼叫 send,但 send 在後面才定義,用一個容器接起來
@@ -99,8 +101,18 @@ fun AssistantScreen(
 
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK) {
-            val text = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-            if (!text.isNullOrBlank()) sendHolder[0]?.invoke(text)
+            val list = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS) ?: arrayListOf()
+            val best = VoiceFix.best(list, LocalDateTime.now())
+            if (best.isNotBlank()) {
+                if (converse) {
+                    // 連續對話是免手持模式,辨識完直接送出
+                    sendHolder[0]?.invoke(best)
+                } else {
+                    // 先留在輸入框,讓你確認或修改後再送出
+                    input = best
+                    alts = list.map { VoiceFix.clean(it) }.filter { it.isNotEmpty() && it != best }.distinct().take(4)
+                }
+            }
         }
     }
 
@@ -109,7 +121,13 @@ fun AssistantScreen(
             val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-TW")
-                .putExtra(RecognizerIntent.EXTRA_PROMPT, "請說…")
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "zh-TW")
+                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                .putExtra(RecognizerIntent.EXTRA_PROMPT, "請說…例如:明天下午三點開會")
+                .putStringArrayListExtra(
+                    "android.speech.extra.BIASING_STRINGS",
+                    VoiceFix.hints(reminders.map { it.title }.distinct().takeLast(20)),
+                )
             speechLauncher.launch(i)
         } catch (e: ActivityNotFoundException) {
             items.add(ChatItem(false, "這支手機找不到語音辨識服務,請改用鍵盤上的麥克風。"))
@@ -157,6 +175,7 @@ fun AssistantScreen(
         val t = text.trim()
         if (t.isEmpty() || busy) return
         input = ""
+        alts = emptyList()
         speaker.stop()
         items.add(ChatItem(true, t))
         if (!aiOn || pendingAsk != null) {
@@ -284,6 +303,24 @@ fun AssistantScreen(
             }
         }
 
+        if (alts.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("聽成這樣?", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                alts.forEach { a ->
+                    OutlinedButton(onClick = {
+                        alts = alts.filter { it != a } + input
+                        input = a
+                    }) { Text(a, maxLines = 1) }
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
