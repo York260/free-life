@@ -191,7 +191,7 @@ fun BriefingScreen(
                             if (action != null && label != null) {
                                 if (idx in added) {
                                     Text(
-                                        text = "✓ 已加入提醒",
+                                        text = "已加入提醒",
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(top = 8.dp),
@@ -221,7 +221,10 @@ fun BriefingScreen(
                     )
                 }
                 Row(modifier = Modifier.padding(top = 8.dp)) {
-                    TextButton(onClick = { readAloud(greeting, list) }) { Text("🔊 朗讀") }
+                    TextButton(onClick = { readAloud(greeting, list) }) {
+                        AppIcon(Glyph.SPEAKER, MaterialTheme.colorScheme.primary, 18.dp, Modifier.padding(end = 6.dp))
+                        Text("朗讀")
+                    }
                     TextButton(onClick = onOpenSettings) { Text("設定") }
                 }
                 Button(

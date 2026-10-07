@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -24,7 +25,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,6 +91,7 @@ fun HomeScreen(
     var anchor by remember { mutableStateOf(LocalDate.now()) }
     var selected by remember { mutableStateOf(LocalDate.now()) }
     var editing by remember { mutableStateOf<Reminder?>(null) }
+    var showQuick by remember { mutableStateOf(false) }
     var now by remember { mutableStateOf(LocalDateTime.now()) }
 
     // 每半分鐘更新「現在」,時間軸上的線才會跟著走
@@ -159,7 +162,10 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            OutlinedButton(onClick = onOpenBriefing) { Text("☀ 簡報") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                HeaderAction(Glyph.CHECKLIST, "小任務", quick.count { !it.done }) { showQuick = true }
+                HeaderAction(Glyph.SUN, "簡報", 0, onOpenBriefing)
+            }
         }
 
         ModeSwitch(selected = mode, onSelect = { mode = it })
@@ -296,38 +302,23 @@ fun HomeScreen(
                 }
             }
 
-            Text(
-                text = "小任務 · ${quick.count { !it.done }} 件",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
-            )
-            if (quick.isEmpty()) {
-                Text(
-                    text = "沒有時間的事會放這裡。到「助理」說一聲,例如「買牛奶」。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            quick.forEach { r ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = r.done, onCheckedChange = { onToggle(r) })
-                    Text(
-                        text = r.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textDecoration = if (r.done) TextDecoration.LineThrough else null,
-                        color = if (r.done) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { editing = r },
-                    )
-                }
-            }
             TextButton(onClick = onTestAlarm, modifier = Modifier.padding(top = 8.dp)) {
                 Text("測試鬧鐘(10 秒後響)")
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    if (showQuick) {
+        QuickTaskSheet(
+            quick = quick,
+            onDismiss = { showQuick = false },
+            onToggle = onToggle,
+            onOpen = {
+                showQuick = false
+                editing = it
+            },
+        )
     }
 
     val ed = editing
@@ -486,14 +477,15 @@ private fun AgendaRow(o: Occ, now: LocalDateTime, onClick: (Reminder) -> Unit) {
         )
         Column(modifier = Modifier.padding(start = 10.dp)) {
             Text(
-                text = (if (r.repeat.isNotEmpty()) "🔁 " else "") + r.title,
+                text = r.title,
                 style = MaterialTheme.typography.bodyLarge,
                 textDecoration = if (r.done) TextDecoration.LineThrough else null,
                 color = if (r.done) scheme.outline else scheme.onSurface,
             )
             val late = !r.done && o.effectiveEnd.isBefore(now) && r.repeat.isEmpty()
             Text(
-                text = time + (if (r.location.isBlank()) "" else " · ${r.location}") + if (late) " · 已過時" else "",
+                text = time + (if (r.repeat.isEmpty()) "" else " · ${Repeat.label(r.repeat)}") +
+                    (if (r.location.isBlank()) "" else " · ${r.location}") + if (late) " · 已過時" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (late) scheme.error else scheme.onSurfaceVariant,
             )
@@ -537,9 +529,9 @@ fun BottomBar(screen: Screen, onSelect: (Screen) -> Unit) {
                 .height(64.dp),
         ) {
             listOf(
-                Triple(Screen.HOME, "📅", "行程"),
-                Triple(Screen.ASSISTANT, "🎤", "助理"),
-                Triple(Screen.SETTINGS, "⚙", "設定"),
+                Triple(Screen.HOME, Glyph.CALENDAR, "行程"),
+                Triple(Screen.ASSISTANT, Glyph.MIC, "助理"),
+                Triple(Screen.SETTINGS, Glyph.SLIDERS, "設定"),
             ).forEach { (target, icon, text) ->
                 val on = target == screen
                 Column(
@@ -556,7 +548,7 @@ fun BottomBar(screen: Screen, onSelect: (Screen) -> Unit) {
                             .background(if (on) scheme.primaryContainer else Color.Transparent)
                             .padding(horizontal = 22.dp, vertical = 3.dp),
                     ) {
-                        Text(icon, fontSize = 18.sp, textAlign = TextAlign.Center)
+                        AppIcon(icon, if (on) scheme.primary else scheme.onSurfaceVariant, 22.dp)
                     }
                     Text(
                         text = text,
@@ -564,6 +556,107 @@ fun BottomBar(screen: Screen, onSelect: (Screen) -> Unit) {
                         fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                         color = if (on) scheme.primary else scheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+    }
+}
+
+/** 標題列右邊的按鈕:圖示 + 文字,右上角可以掛紅色數字。 */
+@Composable
+private fun HeaderAction(glyph: Glyph, label: String, badge: Int, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = scheme.surfaceVariant,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable { onClick() },
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppIcon(glyph, scheme.primary, 18.dp)
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.onSurface,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+        if (badge > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 0.dp)
+                    .height(18.dp)
+                    .widthIn(min = 18.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(Color(0xFFE53935))
+                    .padding(horizontal = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (badge > 99) "99+" else badge.toString(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+/** 點「小任務」按鈕後從下方滑出的清單。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickTaskSheet(
+    quick: List<Reminder>,
+    onDismiss: () -> Unit,
+    onToggle: (Reminder) -> Unit,
+    onOpen: (Reminder) -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 16.dp),
+        ) {
+            Text(
+                text = "小任務 · ${quick.count { !it.done }} 件待辦",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            if (quick.isEmpty()) {
+                Text(
+                    text = "目前沒有小任務。到「助理」說一聲,例如「買牛奶」。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+            }
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                quick.forEach { r ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = r.done, onCheckedChange = { onToggle(r) })
+                        Text(
+                            text = r.title,
+                            style = MaterialTheme.typography.bodyLarge,
+                            textDecoration = if (r.done) TextDecoration.LineThrough else null,
+                            color = if (r.done) scheme.outline else scheme.onSurface,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onOpen(r) }
+                                .padding(vertical = 10.dp),
+                        )
+                    }
                 }
             }
         }

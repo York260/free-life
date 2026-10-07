@@ -128,7 +128,7 @@ fun AssistantScreen(
         val all = reminders.toList() + newOnes
         return newOnes.mapNotNull { r ->
             val clash = Conflicts.overlapping(all, r)
-            if (clash.isEmpty()) null else "⚠「${r.title}」${Conflicts.describe(clash)}時間重疊"
+            if (clash.isEmpty()) null else "注意:「${r.title}」${Conflicts.describe(clash)}時間重疊"
         }.joinToString("\n")
     }
 
@@ -283,7 +283,9 @@ fun AssistantScreen(
                 maxLines = 3,
             )
             Spacer(Modifier.padding(start = 8.dp))
-            OutlinedButton(onClick = { startListening() }) { Text("🎤") }
+            OutlinedButton(onClick = { startListening() }) {
+                AppIcon(Glyph.MIC, MaterialTheme.colorScheme.primary, 20.dp)
+            }
             Spacer(Modifier.padding(start = 4.dp))
             Button(onClick = { send(input) }, enabled = !busy) { Text("送出") }
         }
@@ -321,7 +323,7 @@ private fun Bubble(
                             r.triggerAt != null -> formatTrigger(r.start)
                             else -> "小任務"
                         }
-                        val rep = if (r.repeat.isEmpty()) "" else " 🔁${Repeat.label(r.repeat)}"
+                        val rep = if (r.repeat.isEmpty()) "" else " ・${Repeat.label(r.repeat)}"
                         Text(
                             text = "• $span ${r.title}$rep",
                             style = MaterialTheme.typography.bodyMedium,

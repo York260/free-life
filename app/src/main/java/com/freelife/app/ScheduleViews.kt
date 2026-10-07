@@ -226,12 +226,7 @@ private fun EventBlock(
     val ongoing = !r.done && !o.start.isAfter(now) && o.effectiveEnd.isAfter(now) && !point
     val shape = RoundedCornerShape(8.dp)
 
-    val title = buildString {
-        if (clash) append("⚠ ")
-        if (point) append("⏰ ")
-        if (r.repeat.isNotEmpty()) append("🔁 ")
-        append(r.title)
-    }
+    val title = r.title
     val timeText = if (o.end != null) "${o.start.format(HM)}–${o.end.format(HM)}" else o.start.format(HM)
     val status = when {
         r.done -> "已完成"
@@ -256,15 +251,23 @@ private fun EventBlock(
             verticalArrangement = Arrangement.Center,
         ) {
             if (tall) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = content,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textDecoration = if (r.done) TextDecoration.LineThrough else null,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (clash) {
+                        AppIcon(Glyph.WARNING, scheme.error, 14.dp, Modifier.padding(end = 4.dp))
+                    }
+                    if (r.repeat.isNotEmpty()) {
+                        AppIcon(Glyph.REPEAT, content, 14.dp, Modifier.padding(end = 4.dp))
+                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = content,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textDecoration = if (r.done) TextDecoration.LineThrough else null,
+                    )
+                }
                 Text(
                     text = listOf(timeText, status).filter { it.isNotEmpty() }.joinToString(" · ") +
                         if (r.location.isBlank()) "" else " · ${r.location}",
