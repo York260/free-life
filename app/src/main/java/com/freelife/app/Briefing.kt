@@ -56,7 +56,7 @@ object Briefing {
             "每一點一句話,不超過 40 個字,不要客套。" +
             "只輸出 JSON 字串陣列,內容是三個字串,不要任何其他文字。"
 
-    /** 整理出今天剩下的、明天的、已過時未完成的排程,以及沒有時間的隨手小事。 */
+    /** 整理出今天剩下的、明天的、已過時未完成的排程,以及沒有時間的小任務。 */
     fun collect(now: LocalDateTime, all: List<Reminder>): DayPlan {
         val zone = ZoneId.systemDefault()
         val items = all
@@ -171,9 +171,9 @@ object Briefing {
             out += Suggestion("今天下一件是 ${next.at.format(HM)} 的「${next.r.title}」$where。")
         }
 
-        // 隨手小事
+        // 小任務
         if (plan.quick.size >= 5) {
-            out += Suggestion("隨手小事累積 ${plan.quick.size} 件了,要不要挑 1 到 2 件今天先做掉?")
+            out += Suggestion("小任務累積 ${plan.quick.size} 件了,要不要挑 1 到 2 件今天先做掉?")
         } else if (plan.quick.isNotEmpty()) {
             out += Suggestion("今天順手把「${plan.quick.first().title}」處理掉怎麼樣?")
         }
@@ -218,7 +218,7 @@ object Briefing {
         section("明天的排程", plan.tomorrow)
         if (plan.overdue.isNotEmpty()) section("已過時還沒完成", plan.overdue)
         if (plan.quick.isNotEmpty()) {
-            sb.append("還沒有時間的隨手小事:")
+            sb.append("還沒有時間的小任務:")
                 .append(plan.quick.take(10).joinToString("、") { it.title })
                 .append('\n')
         }

@@ -123,7 +123,7 @@ fun BriefingScreen(
             PlanSection("明天", plan.tomorrow)
             if (plan.overdue.isNotEmpty()) PlanSection("已過時還沒完成", plan.overdue)
             Text(
-                text = "隨手小事:${plan.quick.size} 件",
+                text = "小任務:${plan.quick.size} 件",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp),

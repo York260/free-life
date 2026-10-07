@@ -117,7 +117,7 @@ object Assistant {
                                 durationMin = p.durationMin,
                                 relative = p.relative,
                                 askedStart = true,
-                                // 隨手小事只有開始時間;除非這句話本身就說了結束時間
+                                // 小任務只有開始時間;除非這句話本身就說了結束時間
                                 noEnd = p.endTime == null && p.durationMin == null,
                             ),
                             now,
@@ -207,14 +207,14 @@ object Assistant {
     private fun advance(d: Draft, now: LocalDateTime): Outcome {
         val zone = ZoneId.systemDefault()
 
-        // 完全沒有日期時間:隨手小事,問什麼時候開始(可選「現在」)
+        // 完全沒有日期時間:小任務,問什麼時候開始(可選「現在」)
         if (d.date == null && d.time == null) {
             if (!d.askedStart) {
                 return Outcome.Ask(d, Kind.START, "「${d.title}」什麼時候開始?", START_CHIPS)
             }
             val ms = now.atZone(zone).toInstant().toEpochMilli()
             val r = Reminder(id = newId(), title = d.title, location = d.location, startAt = ms)
-            return Outcome.Done(r, "已記下隨手小事:${d.title}(開始時間 ${formatTrigger(ms)},不響鈴)")
+            return Outcome.Done(r, "已記下小任務:${d.title}(開始時間 ${formatTrigger(ms)},不響鈴)")
         }
 
         val time = d.time
@@ -267,6 +267,6 @@ object Assistant {
             id = newId(), title = d.title, location = d.location,
             triggerAt = startMs, startAt = startMs,
         )
-        return Outcome.Done(r, "已記下隨手小事:${formatTrigger(startMs)} ${d.title}$where(開始時響鈴)")
+        return Outcome.Done(r, "已記下小任務:${formatTrigger(startMs)} ${d.title}$where(開始時響鈴)")
     }
 }

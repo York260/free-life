@@ -11,7 +11,7 @@ import java.time.temporal.TemporalAdjusters
  * 有日期或時間就是有開始時間(hasWhen);沒有則要追問開始時間。
  * needAmPm = 只說了「3點」這類沒有上午/下午的時間,time 裡暫存原始小時,等使用者回答。
  * endTime / durationMin = 結束時間(同一天的時鐘)或持續多久;endAmbig = 結束時間沒說上午下午。
- * relative = 「10分鐘後」這種相對時間;noEnd = 使用者表示沒有結束時間(隨手小事)。
+ * relative = 「10分鐘後」這種相對時間;noEnd = 使用者表示沒有結束時間(小任務)。
  */
 data class Draft(
     val title: String,

@@ -392,7 +392,7 @@ private fun HomeScreen(
                 ReminderRow(r, onToggle, onDelete)
             }
 
-            item { SectionHeader("隨手小事 · 只有開始時間") }
+            item { SectionHeader("小任務 · 只有開始時間") }
             if (quick.isEmpty()) {
                 item { EmptyHint("沒有結束時間的事會放這裡,例如輸入「買牛奶」") }
             }
