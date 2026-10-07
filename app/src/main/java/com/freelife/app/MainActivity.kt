@@ -19,7 +19,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -54,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -98,48 +104,60 @@ class MainActivity : ComponentActivity() {
                     }
                     BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
 
-                    when (screen) {
-                        Screen.HOME -> HomeScreen(
-                            reminders = reminders,
-                            notifMissing = !notifGranted,
-                            fullScreenMissing = !fullScreenOk,
-                            exactAlarmMissing = !exactAlarmOk,
-                            overlayMissing = !overlayOk,
-                            silenced = silenced,
-                            crashText = crashText,
-                            onGrantNotif = { requestNotifPermission() },
-                            onGrantFullScreen = { openFullScreenSettings() },
-                            onGrantExactAlarm = { openExactAlarmSettings() },
-                            onGrantOverlay = { openOverlaySettings() },
-                            onOpenSound = { openSoundSettings() },
-                            onEdit = { updateReminder(it) },
-                            onCopyCrash = { copyCrash() },
-                            onClearCrash = { clearCrash() },
-                            onAdd = { addReminder(it) },
-                            onToggle = { toggleDone(it) },
-                            onDelete = { deleteReminder(it) },
-                            onTestAlarm = { testAlarm() },
-                            onOpenBriefing = { screen = Screen.BRIEFING },
-                            onOpenSettings = { screen = Screen.SETTINGS },
-                            onOpenAssistant = { screen = Screen.ASSISTANT },
-                        )
+                    // 鍵盤打開時收起底部導覽列;導覽列顯示時,內容區不重複處理導覽列的邊距
+                    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                    val showBar = !imeOpen && screen != Screen.BRIEFING
 
-                        Screen.ASSISTANT -> AssistantScreen(
-                            reminders = reminders,
-                            onAdd = { addReminder(it) },
-                            onDelete = { deleteReminder(it) },
-                            onBack = { screen = Screen.HOME },
-                            onOpenSettings = { screen = Screen.SETTINGS },
-                        )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(
+                                    if (showBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier,
+                                ),
+                        ) {
+                            when (screen) {
+                                Screen.HOME -> HomeScreen(
+                                    reminders = reminders,
+                                    notifMissing = !notifGranted,
+                                    fullScreenMissing = !fullScreenOk,
+                                    exactAlarmMissing = !exactAlarmOk,
+                                    overlayMissing = !overlayOk,
+                                    silenced = silenced,
+                                    crashText = crashText,
+                                    onGrantNotif = { requestNotifPermission() },
+                                    onGrantFullScreen = { openFullScreenSettings() },
+                                    onGrantExactAlarm = { openExactAlarmSettings() },
+                                    onGrantOverlay = { openOverlaySettings() },
+                                    onOpenSound = { openSoundSettings() },
+                                    onCopyCrash = { copyCrash() },
+                                    onClearCrash = { clearCrash() },
+                                    onEdit = { updateReminder(it) },
+                                    onToggle = { toggleDone(it) },
+                                    onDelete = { deleteReminder(it) },
+                                    onTestAlarm = { testAlarm() },
+                                    onOpenBriefing = { screen = Screen.BRIEFING },
+                                )
 
-                        Screen.BRIEFING -> BriefingScreen(
-                            reminders = reminders,
-                            onAdd = { addReminder(it) },
-                            onBack = { screen = Screen.HOME },
-                            onOpenSettings = { screen = Screen.SETTINGS },
-                        )
+                                Screen.ASSISTANT -> AssistantScreen(
+                                    reminders = reminders,
+                                    onAdd = { addReminder(it) },
+                                    onDelete = { deleteReminder(it) },
+                                    onBack = { screen = Screen.HOME },
+                                    onOpenSettings = { screen = Screen.SETTINGS },
+                                )
 
-                        Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })
+                                Screen.BRIEFING -> BriefingScreen(
+                                    reminders = reminders,
+                                    onAdd = { addReminder(it) },
+                                    onBack = { screen = Screen.HOME },
+                                    onOpenSettings = { screen = Screen.SETTINGS },
+                                )
+
+                                Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })
+                            }
+                        }
+                        if (showBar) BottomBar(screen) { screen = it }
                     }
                 }
             }
@@ -291,334 +309,5 @@ class MainActivity : ComponentActivity() {
     private fun testAlarm() {
         val now = System.currentTimeMillis()
         addReminder(Reminder(id = now, title = "測試鬧鐘", triggerAt = now + 10_000L, startAt = now + 10_000L))
-    }
-}
-
-@Composable
-private fun HomeScreen(
-    reminders: List<Reminder>,
-    notifMissing: Boolean,
-    fullScreenMissing: Boolean,
-    exactAlarmMissing: Boolean,
-    overlayMissing: Boolean,
-    silenced: Boolean,
-    crashText: String?,
-    onGrantNotif: () -> Unit,
-    onGrantFullScreen: () -> Unit,
-    onGrantExactAlarm: () -> Unit,
-    onGrantOverlay: () -> Unit,
-    onOpenSound: () -> Unit,
-    onEdit: (Reminder) -> Unit,
-    onCopyCrash: () -> Unit,
-    onClearCrash: () -> Unit,
-    onAdd: (Reminder) -> Unit,
-    onToggle: (Reminder) -> Unit,
-    onDelete: (Reminder) -> Unit,
-    onTestAlarm: () -> Unit,
-    onOpenBriefing: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenAssistant: () -> Unit,
-) {
-    var input by remember { mutableStateOf("") }
-    var pending by remember { mutableStateOf<Outcome.Ask?>(null) }
-    var lastMessage by remember { mutableStateOf<String?>(null) }
-    var editing by remember { mutableStateOf<Reminder?>(null) }
-
-    fun conflictNote(r: Reminder): String {
-        val clash = Conflicts.overlapping(reminders.toList(), r)
-        return if (clash.isEmpty()) "" else "\n⚠ ${Conflicts.describe(clash)}時間重疊,點項目可以改時間"
-    }
-
-    fun handle(outcome: Outcome) {
-        when (outcome) {
-            is Outcome.Ask -> {
-                pending = outcome
-                lastMessage = null
-            }
-            is Outcome.Done -> {
-                pending = null
-                onAdd(outcome.reminder)
-                lastMessage = outcome.message + conflictNote(outcome.reminder)
-            }
-        }
-    }
-
-    fun submit(text: String) {
-        val t = text.trim()
-        if (t.isEmpty()) return
-        input = ""
-        val now = LocalDateTime.now()
-        val p = pending
-        handle(if (p == null) Assistant.start(t, now) else Assistant.reply(p.draft, p.kind, t, now))
-    }
-
-    val scheduled = reminders
-        .filter { it.isScheduled }
-        .sortedWith(compareBy<Reminder>({ it.done }, { it.start }))
-    val quick = reminders
-        .filter { !it.isScheduled }
-        .sortedWith(compareBy<Reminder>({ it.done }, { it.start }))
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = 16.dp),
-    ) {
-        Text(
-            text = "Free Life",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(top = 16.dp),
-        )
-        Text(
-            text = "打字,或按鍵盤上的麥克風說一句話,我來幫你記",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenAssistant) { Text("🎤 助理") }
-            OutlinedButton(onClick = onOpenBriefing) { Text("☀ 每日確認") }
-            TextButton(onClick = onOpenSettings) { Text("設定") }
-        }
-
-        if (exactAlarmMissing) {
-            PermissionCard("需要允許「鬧鐘與提醒」,才能在準確的時間響鈴", "前往設定", onGrantExactAlarm)
-        }
-        if (notifMissing) {
-            PermissionCard("需要允許通知,鬧鐘才會響", "允許通知", onGrantNotif)
-        }
-        if (fullScreenMissing) {
-            PermissionCard("需要允許「全螢幕通知」,鎖屏時才會跳出鬧鐘畫面", "前往設定", onGrantFullScreen)
-        }
-
-        if (overlayMissing) {
-            PermissionCard(
-                "建議允許「顯示在其他應用程式上層」,用手機時鬧鐘橫幅才會一直停在畫面上方",
-                "前往設定",
-                onGrantOverlay,
-            )
-        }
-
-        if (silenced) {
-            PermissionCard("手機目前是勿擾的「完全靜音」,鬧鐘也不會響。請改成「僅限鬧鐘」或關閉", "前往設定", onOpenSound)
-        }
-
-        if (crashText != null) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "上次出了問題(請按「複製」貼給我)",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                    )
-                    Text(
-                        text = crashText.take(300),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onCopyCrash) { Text("複製") }
-                        TextButton(onClick = onClearCrash) { Text("清除") }
-                    }
-                }
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(vertical = 8.dp),
-        ) {
-            item { SectionHeader("排程 · 有開始與結束時間") }
-            if (scheduled.isEmpty()) {
-                item { EmptyHint("還沒有排程。試試輸入「明天下午3點到4點看牙醫」") }
-            }
-            items(scheduled, key = { it.id }) { r ->
-                ReminderRow(r, onToggle, onDelete) { editing = r }
-            }
-
-            item { SectionHeader("小任務 · 只有開始時間") }
-            if (quick.isEmpty()) {
-                item { EmptyHint("沒有結束時間的事會放這裡,例如輸入「買牛奶」") }
-            }
-            items(quick, key = { it.id }) { r ->
-                ReminderRow(r, onToggle, onDelete) { editing = r }
-            }
-
-            item {
-                TextButton(onClick = onTestAlarm) { Text("測試鬧鐘(10 秒後響)") }
-            }
-        }
-
-        val ed = editing
-        if (ed != null) {
-            EditReminderDialog(
-                r = ed,
-                onSave = { updated ->
-                    onEdit(updated)
-                    editing = null
-                    lastMessage = "已儲存:${updated.title}" + conflictNote(updated)
-                },
-                onDismiss = { editing = null },
-            )
-        }
-
-        val p = pending
-        val msg = lastMessage
-        if (p != null) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(text = p.prompt, style = MaterialTheme.typography.bodyLarge)
-                    Row(
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        p.chips.forEach { chip ->
-                            OutlinedButton(onClick = { submit(chip) }) { Text(chip) }
-                        }
-                        TextButton(onClick = { pending = null }) { Text("取消") }
-                    }
-                }
-            }
-        } else if (msg != null) {
-            Text(
-                text = msg,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text(if (pending == null) "例如:明天下午3點到4點看牙醫" else "回答上面的問題…")
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { submit(input) }),
-                maxLines = 3,
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { submit(input) }) { Text("送出") }
-        }
-    }
-}
-
-@Composable
-private fun PermissionCard(message: String, buttonText: String, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = onClick) { Text(buttonText) }
-        }
-    }
-}
-
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
-    )
-}
-
-@Composable
-private fun EmptyHint(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
-}
-
-@Composable
-private fun ReminderRow(
-    r: Reminder,
-    onToggle: (Reminder) -> Unit,
-    onDelete: (Reminder) -> Unit,
-    onEdit: () -> Unit,
-) {
-    val nowMs = System.currentTimeMillis()
-    val end = r.endAt
-    val ring = r.triggerAt
-    val overdue = !r.done && ring != null && (end ?: ring) < nowMs
-    val ongoing = !r.done && end != null && r.start <= nowMs && nowMs <= end
-    val details = buildList<String> {
-        when {
-            end != null -> add(formatRange(r.start, end))
-            ring != null -> add(formatTrigger(r.start))
-            else -> add("記下於 " + formatTrigger(r.start))
-        }
-        if (r.location.isNotBlank()) add(r.location)
-        if (r.repeat.isNotEmpty()) add("🔁 " + Repeat.label(r.repeat) + "(勾選=略過這次)")
-        if (r.leadMin > 0) add("提前 " + leadLabel(r.leadMin))
-        if (ongoing) add("進行中")
-        if (overdue) add("已過時")
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(checked = r.done, onCheckedChange = { onToggle(r) })
-        Column(modifier = Modifier.weight(1f).clickable { onEdit() }) {
-            Text(
-                text = r.title,
-                style = MaterialTheme.typography.bodyLarge,
-                textDecoration = if (r.done) TextDecoration.LineThrough else null,
-                color = if (r.done) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface,
-            )
-            if (details.isNotEmpty()) {
-                Text(
-                    text = details.joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        TextButton(onClick = { onDelete(r) }) { Text("刪除") }
     }
 }

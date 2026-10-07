@@ -78,6 +78,8 @@ fun EditReminderDialog(
     r: Reminder,
     onSave: (Reminder) -> Unit,
     onDismiss: () -> Unit,
+    onDelete: (() -> Unit)? = null,
+    onToggleDone: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     var title by remember(r.id) { mutableStateOf(r.title) }
@@ -211,6 +213,32 @@ fun EditReminderDialog(
                     modifier = Modifier.padding(top = 16.dp),
                 )
                 ChoiceRow(LEAD_OPTIONS, lead) { lead = it }
+
+                if (onDelete != null || onToggleDone != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        if (onToggleDone != null) {
+                            TextButton(onClick = onToggleDone) {
+                                Text(
+                                    when {
+                                        r.repeat.isNotEmpty() -> "略過這次"
+                                        r.done -> "取消完成"
+                                        else -> "標示完成"
+                                    },
+                                )
+                            }
+                        }
+                        if (onDelete != null) {
+                            TextButton(onClick = onDelete) {
+                                Text("刪除", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
 
                 val e = error
                 if (e != null) {

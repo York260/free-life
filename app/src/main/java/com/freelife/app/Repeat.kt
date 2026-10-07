@@ -37,6 +37,9 @@ object Repeat {
         return d
     }
 
+    /** 這個重複規則的下一次出現時間(行程圖用來展開未來的次數)。 */
+    fun next(dt: LocalDateTime, code: String): LocalDateTime = nextLocal(dt, code)
+
     private fun nextLocal(dt: LocalDateTime, code: String): LocalDateTime = when (code) {
         "daily" -> dt.plusDays(1)
         "weekdays" -> alignWeekday(dt.plusDays(1))
