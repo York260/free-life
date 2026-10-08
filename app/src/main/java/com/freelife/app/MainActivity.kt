@@ -76,6 +76,8 @@ class MainActivity : ComponentActivity() {
     private var silenced by mutableStateOf(false)
     private var crashText by mutableStateOf<String?>(null)
     private var briefingRequested by mutableStateOf(false)
+    private var voiceRequested by mutableStateOf(false)
+    private var voiceSignal by mutableStateOf(0)
 
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -88,6 +90,13 @@ class MainActivity : ComponentActivity() {
         AlarmNotifier.ensureChannel(this)
 
         briefingRequested = intent.getBooleanExtra(BriefingNotifier.EXTRA_OPEN_BRIEFING, false)
+        // 語音入口(小工具、磁貼、捷徑、語音圖示),或設定了「打開就聽」的一般啟動
+        val plainLaunch = intent.action == Intent.ACTION_MAIN && !briefingRequested
+        if (savedInstanceState == null &&
+            (VoiceEntry.isVoice(intent) || (plainLaunch && AppSettings.openToVoice(this)))
+        ) {
+            voiceRequested = true
+        }
         BriefingScheduler.schedule(this)
 
         setContent {
@@ -100,6 +109,13 @@ class MainActivity : ComponentActivity() {
                         if (briefingRequested) {
                             screen = Screen.BRIEFING
                             briefingRequested = false
+                        }
+                    }
+                    LaunchedEffect(voiceRequested) {
+                        if (voiceRequested) {
+                            screen = Screen.ASSISTANT
+                            voiceSignal++
+                            voiceRequested = false
                         }
                     }
                     BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
@@ -140,6 +156,7 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 Screen.ASSISTANT -> AssistantScreen(
+                                    listenSignal = voiceSignal,
                                     reminders = reminders,
                                     onAdd = { addReminder(it) },
                                     onDelete = { deleteReminder(it) },
@@ -170,6 +187,12 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(BriefingNotifier.EXTRA_OPEN_BRIEFING, false)) {
             briefingRequested = true
         }
+        if (VoiceEntry.isVoice(intent)) voiceRequested = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        VoiceWidget.refresh(this)
     }
 
     override fun onResume() {

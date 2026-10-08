@@ -67,6 +67,7 @@ data class ChatItem(
  */
 @Composable
 fun AssistantScreen(
+    listenSignal: Int = 0,
     reminders: List<Reminder>,
     onAdd: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
@@ -218,6 +219,11 @@ fun AssistantScreen(
         }.start()
     }
     sendHolder[0] = { send(it) }
+
+    // 從小工具、磁貼、捷徑進來:畫面一出來就開始聽
+    LaunchedEffect(listenSignal) {
+        if (listenSignal > 0) startListening()
+    }
 
     LaunchedEffect(items.size, busy) {
         if (items.isNotEmpty()) listState.animateScrollToItem(items.lastIndex)

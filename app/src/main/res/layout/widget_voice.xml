@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="12dp">
+
+    <FrameLayout
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:background="@drawable/widget_mic_bg"
+        android:padding="14dp">
+
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="語音記事"
+            android:src="@drawable/ic_mic_cyan" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="點一下,直接說"
+            android:textColor="#FFFFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_next"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="今天沒有更多行程"
+            android:textColor="#FFB8C7DD"
+            android:textSize="13sp" />
+    </LinearLayout>
+</LinearLayout>

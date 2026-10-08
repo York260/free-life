@@ -93,6 +93,13 @@ object AppSettings {
         prefs(ctx).edit().putBoolean("alarm_fade", value).apply()
     }
 
+    /** 從桌面圖示開啟 App 時,直接進助理並開始聽(搭配側邊鍵雙擊)。 */
+    fun openToVoice(ctx: Context): Boolean = prefs(ctx).getBoolean("open_to_voice", false)
+
+    fun setOpenToVoice(ctx: Context, value: Boolean) {
+        prefs(ctx).edit().putBoolean("open_to_voice", value).apply()
+    }
+
     fun apiKey(ctx: Context): String = prefs(ctx).getString("api_key", "") ?: ""
 
     fun setApiKey(ctx: Context, value: String) {

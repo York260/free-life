@@ -34,7 +34,50 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="com.freelife.app.VOICE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- 第二個啟動圖示:從這個進來會直接開始聽。可設給三星側邊鍵雙擊 -->
+        <activity-alias
+            android:name=".VoiceLauncher"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_mic_cyan"
+            android:label="@string/voice_label"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <receiver
+            android:name=".VoiceWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/voice_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".VoiceTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_mic_white"
+            android:label="@string/tile_voice"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".AlarmActivity"

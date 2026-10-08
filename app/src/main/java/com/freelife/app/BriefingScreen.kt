@@ -262,6 +262,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var soundName by remember { mutableStateOf(AlarmSound.title(ctx)) }
+    var openToVoice by remember { mutableStateOf(AppSettings.openToVoice(ctx)) }
     var soundKey by remember { mutableStateOf(AppSettings.alarmSound(ctx)) }
     var volume by remember { mutableStateOf(AppSettings.alarmVolume(ctx).toFloat()) }
     var fade by remember { mutableStateOf(AppSettings.alarmFade(ctx)) }
@@ -339,6 +340,34 @@ fun SettingsScreen(onBack: () -> Unit) {
             ) {
                 Text("提醒時間:%02d:%02d(點此修改)".format(minutes / 60, minutes % 60))
             }
+
+            Text(
+                text = "語音入口",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "從桌面圖示打開 App 時,直接開始聽",
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
+                Switch(checked = openToVoice, onCheckedChange = {
+                    openToVoice = it
+                    AppSettings.setOpenToVoice(ctx, it)
+                })
+            }
+            Text(
+                text = "側邊鍵雙擊:到手機「設定 → 進階功能 → 側邊按鈕 → 按兩下 → 開啟應用程式」,選「Free Life 語音」(麥克風圖示)。" +
+                    "也可以長按 Free Life 圖示選「語音記事」、在桌面加「Free Life」小工具,或在快速設定面板編輯、加入「語音記事」磁貼。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
 
             Text(
                 text = "鬧鐘鈴聲",

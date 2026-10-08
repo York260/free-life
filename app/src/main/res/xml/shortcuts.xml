@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_mic_cyan"
+        android:shortcutId="voice"
+        android:shortcutShortLabel="@string/shortcut_voice">
+        <intent
+            android:action="com.freelife.app.VOICE"
+            android:targetClass="com.freelife.app.MainActivity"
+            android:targetPackage="com.freelife.app" />
+    </shortcut>
+</shortcuts>
