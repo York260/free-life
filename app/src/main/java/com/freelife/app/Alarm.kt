@@ -26,6 +26,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -284,7 +286,7 @@ class AlarmService : Service() {
             showOverlay(r, busy)
             handler.postDelayed(escalate, CONFLICT_GRACE_MS)
         } else {
-            startSound()
+            startAlert(r)
             startVibration()
             showOverlay(r)
         }
@@ -306,10 +308,76 @@ class AlarmService : Service() {
             CrashLog.save(this, e)
         }
         stopPlayback()
-        startSound()
+        startAlert(r)
         startVibration()
         showOverlay(r)
         handler.postDelayed(autoStop, AUTO_STOP_MS)
+    }
+
+    // ── 語音播報:用手機內建朗讀,在鬧鐘音量上唸出提醒內容,重複唸到你處理為止 ──
+    private var tts: TextToSpeech? = null
+    private var speechText = ""
+    private val speakAgain = Runnable { speakNow() }
+
+    /** 依設定:語音播報 / 鈴聲 / 鈴聲加語音。語音不能用時自動改回鈴聲。 */
+    private fun startAlert(r: Reminder) {
+        when (AppSettings.alarmMode(this)) {
+            "ring" -> startSound()
+            "both" -> {
+                startSound(quiet = true)
+                startSpeech(r)
+            }
+            else -> startSpeech(r)
+        }
+    }
+
+    private fun startSpeech(r: Reminder) {
+        speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
+        val existing = tts
+        if (existing != null) {
+            speakNow()
+            return
+        }
+        tts = TextToSpeech(this) { status ->
+            val t = tts
+            if (status != TextToSpeech.SUCCESS || t == null) {
+                handler.post { if (player == null) startSound() }
+                return@TextToSpeech
+            }
+            val lang = t.setLanguage(java.util.Locale.TAIWAN)
+            if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
+                t.setLanguage(java.util.Locale.CHINESE)
+            }
+            t.setAudioAttributes(alarmAttributes())
+            t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onDone(utteranceId: String?) {
+                    handler.postDelayed(speakAgain, 6000L)
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onError(utteranceId: String?) {
+                    handler.post { if (player == null) startSound() }
+                }
+            })
+            handler.post { speakNow() }
+        }
+    }
+
+    private fun speakNow() {
+        val t = tts ?: return
+        if (speechText.isBlank()) return
+        val params = android.os.Bundle()
+        params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, AppSettings.alarmVolume(this) / 100f)
+        t.speak(speechText, TextToSpeech.QUEUE_FLUSH, params, "alarm")
+    }
+
+    private fun stopSpeech() {
+        handler.removeCallbacks(speakAgain)
+        try {
+            tts?.stop()
+        } catch (ignored: Exception) {
+        }
     }
 
     private fun alarmAttributes(): AudioAttributes =
@@ -318,7 +386,7 @@ class AlarmService : Service() {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 
-    private fun startSound() {
+    private fun startSound(quiet: Boolean = false) {
         // 依序嘗試:使用者設定的鬧鐘鈴聲 → 系統預設鬧鐘 → 預設通知音 → 預設鈴聲
         val candidates = listOfNotNull(
             AlarmSound.chosen(this),
@@ -335,7 +403,7 @@ class AlarmService : Service() {
                 mp.setDataSource(this, uri)
                 mp.isLooping = true
                 mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
-                val target = AppSettings.alarmVolume(this) / 100f
+                val target = AppSettings.alarmVolume(this) / 100f * (if (quiet) 0.25f else 1f)
                 val fade = AppSettings.alarmFade(this)
                 mp.setVolume(if (fade) target * 0.15f else target, if (fade) target * 0.15f else target)
                 mp.prepare()
@@ -530,6 +598,7 @@ class AlarmService : Service() {
         handler.removeCallbacks(autoStop)
         handler.removeCallbacks(escalate)
         handler.removeCallbacks(fadeRunnable)
+        stopSpeech()
         try {
             player?.stop()
         } catch (ignored: Exception) {
@@ -544,6 +613,11 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         stopPlayback()
+        try {
+            tts?.shutdown()
+        } catch (ignored: Exception) {
+        }
+        tts = null
         super.onDestroy()
     }
 
@@ -649,5 +723,51 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         AlarmScheduler.rescheduleAll(context)
         BriefingScheduler.schedule(context)
+        DailyJobs.schedule(context)
+    }
+}
+
+/** 鬧鐘要唸的那句話:「長官,十分鐘後開會,地點三樓會議室,到下午三點。」 */
+object AlarmSpeech {
+    fun text(ctx: Context, r: Reminder, nowMs: Long): String {
+        val zone = java.time.ZoneId.systemDefault()
+        val start = java.time.Instant.ofEpochMilli(r.start).atZone(zone).toLocalDateTime()
+        val mins = ((r.start - nowMs) / 60_000L).toInt()
+        val whenText = when {
+            mins >= 1440 -> "明天${clock(start)}"
+            mins >= 60 -> "${mins / 60}小時${if (mins % 60 > 0) "${mins % 60}分" else ""}後"
+            mins >= 2 -> "${mins}分鐘後"
+            mins <= -2 -> "已經開始了"
+            else -> "現在"
+        }
+        val sb = StringBuilder()
+        sb.append(AppSettings.address(ctx)).append(",")
+        sb.append(whenText).append(",").append(r.title)
+        if (r.location.isNotBlank()) sb.append(",地點").append(r.location)
+        r.endAt?.let {
+            val e = java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()
+            sb.append(",到").append(clock(e))
+        }
+        sb.append("。")
+        return sb.toString()
+    }
+
+    /** 18:30 → 「晚上六點半」,唸起來比較自然。 */
+    fun clock(t: java.time.LocalDateTime): String {
+        val h = t.hour
+        val period = when (h) {
+            in 0..4 -> "凌晨"
+            in 5..11 -> "早上"
+            12 -> "中午"
+            in 13..17 -> "下午"
+            else -> "晚上"
+        }
+        val h12 = if (h % 12 == 0) 12 else h % 12
+        val m = when (t.minute) {
+            0 -> ""
+            30 -> "半"
+            else -> "${t.minute}分"
+        }
+        return "$period${h12}點$m"
     }
 }

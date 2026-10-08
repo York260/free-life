@@ -43,7 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import java.time.LocalDateTime
 
-enum class Screen { HOME, BRIEFING, SETTINGS, ASSISTANT }
+enum class Screen { HOME, BRIEFING, SETTINGS, ASSISTANT, REVIEW }
 
 private fun itemText(i: Item): String {
     val loc = if (i.r.location.isBlank()) "" else " @${i.r.location}"
@@ -249,7 +249,7 @@ fun BriefingScreen(
 
 /** 設定:每日確認時間、Claude API 金鑰(選填)。 */
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}) {
+fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}, onDataChanged: () -> Unit = {}) {
     val ctx = LocalContext.current
     var enabled by remember { mutableStateOf(AppSettings.briefingEnabled(ctx)) }
     var minutes by remember { mutableStateOf(AppSettings.briefingMinutes(ctx)) }
@@ -265,6 +265,48 @@ fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}) {
     var thriftOn by remember { mutableStateOf(AppSettings.thrift(ctx)) }
     var soundName by remember { mutableStateOf(AlarmSound.title(ctx)) }
     var openToVoice by remember { mutableStateOf(AppSettings.openToVoice(ctx)) }
+    var alarmMode by remember { mutableStateOf(AppSettings.alarmMode(ctx)) }
+    var nightOn by remember { mutableStateOf(AppSettings.nightEnabled(ctx)) }
+    var nightMin by remember { mutableStateOf(AppSettings.nightMinutes(ctx)) }
+    var eveningOn by remember { mutableStateOf(AppSettings.eveningEnabled(ctx)) }
+    var eveningMin by remember { mutableStateOf(AppSettings.eveningMinutes(ctx)) }
+    var weeklyOn by remember { mutableStateOf(AppSettings.weeklyEnabled(ctx)) }
+    var prepMin by remember { mutableStateOf(AppSettings.prepMinutes(ctx)) }
+    var sleepMin by remember { mutableStateOf(AppSettings.sleepMinutes(ctx)) }
+    var backupMsg by remember { mutableStateOf<String?>(null) }
+    val stamp = java.time.LocalDate.now().toString()
+    val exportJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) {
+            backupMsg = try {
+                Backup.write(ctx, uri, Backup.exportJson(ctx))
+                "備份完成。"
+            } catch (e: Exception) {
+                "備份失敗:${e.message}"
+            }
+        }
+    }
+    val exportIcs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
+        if (uri != null) {
+            backupMsg = try {
+                Backup.write(ctx, uri, Backup.exportIcs(ctx))
+                "已匯出行事曆檔,可以匯入 Google 日曆。"
+            } catch (e: Exception) {
+                "匯出失敗:${e.message}"
+            }
+        }
+    }
+    val importJson = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            backupMsg = try {
+                val n = Backup.importJson(ctx, Backup.read(ctx, uri))
+                onDataChanged()
+                "已還原 $n 筆。"
+            } catch (e: Exception) {
+                "還原失敗,檔案格式不對:${e.message}"
+            }
+        }
+    }
+    fun resched() = DailyJobs.schedule(ctx)
     var soundKey by remember { mutableStateOf(AppSettings.alarmSound(ctx)) }
     var volume by remember { mutableStateOf(AppSettings.alarmVolume(ctx).toFloat()) }
     var fade by remember { mutableStateOf(AppSettings.alarmFade(ctx)) }
@@ -342,6 +384,54 @@ fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}) {
                 Text("時間 %02d:%02d".format(minutes / 60, minutes % 60))
             }
 
+            SectionTitle("每日助理")
+            TimeSwitchRow("睡前預告明天", nightOn, nightMin, {
+                nightOn = it
+                AppSettings.setNightEnabled(ctx, it)
+                resched()
+            }, {
+                nightMin = it
+                AppSettings.setNightMinutes(ctx, it)
+                resched()
+            })
+            Text("起床前準備", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+            Chips(listOf(30 to "30 分", 45 to "45 分", 60 to "1 小時", 90 to "1.5 小時"), prepMin) {
+                prepMin = it
+                AppSettings.setPrepMinutes(ctx, it)
+            }
+            Text("睡眠時間", style = MaterialTheme.typography.bodyMedium)
+            Chips(listOf(420 to "7 小時", 450 to "7.5 小時", 480 to "8 小時"), sleepMin) {
+                sleepMin = it
+                AppSettings.setSleepMinutes(ctx, it)
+            }
+            TimeSwitchRow("傍晚追問沒完成的事", eveningOn, eveningMin, {
+                eveningOn = it
+                AppSettings.setEveningEnabled(ctx, it)
+                resched()
+            }, {
+                eveningMin = it
+                AppSettings.setEveningMinutes(ctx, it)
+                resched()
+            })
+            TimeSwitchRow("每週回顧(週日 20:00)", weeklyOn, null, {
+                weeklyOn = it
+                AppSettings.setWeeklyEnabled(ctx, it)
+                resched()
+            })
+
+            SectionTitle("備份")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { exportJson.launch("freelife-備份-$stamp.json") }) { Text("備份") }
+                OutlinedButton(onClick = { importJson.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("還原") }
+                OutlinedButton(onClick = { exportIcs.launch("freelife-$stamp.ics") }) { Text("匯出行事曆") }
+            }
+            Text(
+                "備份檔可以存到雲端硬碟;換手機時按「還原」選那個檔案。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            backupMsg?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp)) }
+
             Text(
                 text = "語音入口",
                 style = MaterialTheme.typography.titleMedium,
@@ -370,13 +460,27 @@ fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}) {
             )
 
             Text(
-                text = "鬧鐘鈴聲",
+                text = "鬧鐘響法",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 24.dp),
             )
+            Chips(
+                listOf("voice" to "語音播報", "ring" to "鈴聲", "both" to "鈴聲加語音"),
+                alarmMode,
+            ) {
+                alarmMode = it
+                AppSettings.setAlarmMode(ctx, it)
+            }
+            if (alarmMode == "voice") {
+                Text(
+                    "響起時用語音唸出內容,例如「${AppSettings.address(ctx)},十分鐘後開會,地點三樓會議室」,唸到你處理為止。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
-                text = "目前:$soundName",
+                text = "鈴聲:$soundName",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 4.dp),
             )

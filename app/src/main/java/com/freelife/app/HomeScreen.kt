@@ -90,7 +90,10 @@ fun HomeScreen(
     onDelete: (Reminder) -> Unit,
     onTestAlarm: () -> Unit,
     onOpenBriefing: () -> Unit,
+    onOpenReview: () -> Unit = {},
+    onAdd: (Reminder) -> Unit = {},
 ) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var mode by remember { mutableStateOf(MODE_DAY) }
     var anchor by remember { mutableStateOf(LocalDate.now()) }
     var selected by remember { mutableStateOf(LocalDate.now()) }
@@ -271,7 +274,23 @@ fun HomeScreen(
                     } else {
                         null
                     }
-                    DaySummary(anchor, occs, now, tomorrowFirst)
+                    if (anchor == today) {
+                        val late = ReminderOps.overdue(all, System.currentTimeMillis())
+                        if (late.isNotEmpty()) {
+                            OverdueCard(
+                                items = late,
+                                onDone = onToggle,
+                                onTomorrow = { onEdit(ReminderOps.shiftedToTomorrow(it)) },
+                                onDelete = onDelete,
+                            )
+                        }
+                    }
+                    val night = if (tomorrowFirst != null) NightPlan.compute(ctx, all, now) else null
+                    val wake = night?.wakeReminder(all)
+                    DaySummary(
+                        anchor, occs, now, tomorrowFirst, night,
+                        onSetWake = if (wake != null) ({ onAdd(wake) }) else null,
+                    )
                     Box(
                         modifier = Modifier.onGloballyPositioned { c ->
                             timelineTop = c.positionInParent().y
@@ -283,12 +302,18 @@ fun HomeScreen(
 
                 MODE_WEEK -> {
                     val open = occs.count { !it.r.done }
-                    Text(
-                        text = "共 ${occs.size} 件,$open 件未完成",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "共 ${occs.size} 件,$open 件未完成",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = onOpenReview) { Text("本週回顧 ›") }
+                    }
                     WeekView(weekStart, occs, today, now) {
                         anchor = it
                         selected = it
@@ -400,7 +425,14 @@ private fun ModeSwitch(selected: Int, onSelect: (Int) -> Unit) {
 
 /** 本日頂端的「下一件」卡片與一句話摘要。 */
 @Composable
-private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime, tomorrowFirst: Occ? = null) {
+private fun DaySummary(
+    day: LocalDate,
+    occs: List<Occ>,
+    now: LocalDateTime,
+    tomorrowFirst: Occ? = null,
+    night: NightPlan? = null,
+    onSetWake: (() -> Unit)? = null,
+) {
     val scheme = MaterialTheme.colorScheme
     val items = ScheduleModel.forDay(occs, day)
     val open = items.count { !it.r.done }
@@ -452,6 +484,30 @@ private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime, tomo
                             style = MaterialTheme.typography.bodyMedium,
                             color = scheme.onPrimaryContainer.copy(alpha = 0.8f),
                         )
+                    }
+                    val w = night?.wake
+                    val b = night?.bed
+                    if (w != null && b != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "建議 ${w.format(HM)} 起床 · ${b.format(HM)} 前就寢",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = scheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (onSetWake != null) {
+                                TextButton(onClick = onSetWake) { Text("設鬧鐘") }
+                            } else {
+                                Text("已設", style = MaterialTheme.typography.labelMedium, color = scheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            }
+                        }
+                    }
+                    night?.warn?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.error)
                     }
                 }
             } else {
@@ -709,6 +765,45 @@ private fun QuickTaskSheet(
                                 .padding(vertical = 10.dp),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/** 過時還沒完成的事:完成 / 改到明天 / 刪除,一鍵處理。 */
+@Composable
+private fun OverdueCard(
+    items: List<Reminder>,
+    onDone: (Reminder) -> Unit,
+    onTomorrow: (Reminder) -> Unit,
+    onDelete: (Reminder) -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        colors = CardDefaults.cardColors(containerColor = scheme.errorContainer.copy(alpha = 0.55f)),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "這些過時了,完成了嗎?",
+                style = MaterialTheme.typography.titleSmall,
+                color = scheme.onErrorContainer,
+            )
+            items.take(5).forEach { r ->
+                val s = java.time.LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(r.start), java.time.ZoneId.systemDefault())
+                Text(
+                    "${s.monthValue}/${s.dayOfMonth} ${s.format(HM)}  ${r.title}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onErrorContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { onDone(r) }) { Text("完成了") }
+                    TextButton(onClick = { onTomorrow(r) }) { Text("改到明天") }
+                    TextButton(onClick = { onDelete(r) }) { Text("刪除", color = scheme.error) }
                 }
             }
         }

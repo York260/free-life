@@ -100,6 +100,40 @@ object AppSettings {
         prefs(ctx).edit().putBoolean("open_to_voice", value).apply()
     }
 
+    // ── 每日助理 ──
+    private fun b(ctx: Context, k: String, d: Boolean) = prefs(ctx).getBoolean(k, d)
+    private fun i(ctx: Context, k: String, d: Int) = prefs(ctx).getInt(k, d)
+    private fun putB(ctx: Context, k: String, v: Boolean) = prefs(ctx).edit().putBoolean(k, v).apply()
+    private fun putI(ctx: Context, k: String, v: Int) = prefs(ctx).edit().putInt(k, v).apply()
+
+    /** 睡前預告明天,預設 21:30。 */
+    fun nightEnabled(ctx: Context) = b(ctx, "night_on", true)
+    fun setNightEnabled(ctx: Context, v: Boolean) = putB(ctx, "night_on", v)
+    fun nightMinutes(ctx: Context) = i(ctx, "night_min", 21 * 60 + 30)
+    fun setNightMinutes(ctx: Context, v: Int) = putI(ctx, "night_min", v)
+
+    /** 傍晚追問過時沒完成的事,預設 18:30。 */
+    fun eveningEnabled(ctx: Context) = b(ctx, "evening_on", true)
+    fun setEveningEnabled(ctx: Context, v: Boolean) = putB(ctx, "evening_on", v)
+    fun eveningMinutes(ctx: Context) = i(ctx, "evening_min", 18 * 60 + 30)
+    fun setEveningMinutes(ctx: Context, v: Int) = putI(ctx, "evening_min", v)
+
+    /** 每週回顧(週日 20:00)。 */
+    fun weeklyEnabled(ctx: Context) = b(ctx, "weekly_on", true)
+    fun setWeeklyEnabled(ctx: Context, v: Boolean) = putB(ctx, "weekly_on", v)
+
+    /** 起床到第一件事之間的準備時間,預設 60 分鐘。 */
+    fun prepMinutes(ctx: Context) = i(ctx, "prep_min", 60)
+    fun setPrepMinutes(ctx: Context, v: Int) = putI(ctx, "prep_min", v)
+
+    /** 建議睡眠時間,預設 7.5 小時(5 個睡眠週期)。 */
+    fun sleepMinutes(ctx: Context) = i(ctx, "sleep_min", 450)
+    fun setSleepMinutes(ctx: Context, v: Int) = putI(ctx, "sleep_min", v)
+
+    /** 鬧鐘響法:voice 語音播報(預設)、ring 鈴聲、both 鈴聲加語音。 */
+    fun alarmMode(ctx: Context): String = prefs(ctx).getString("alarm_mode", "voice") ?: "voice"
+    fun setAlarmMode(ctx: Context, v: String) = prefs(ctx).edit().putString("alarm_mode", v).apply()
+
     fun apiKey(ctx: Context): String = prefs(ctx).getString("api_key", "") ?: ""
 
     fun setApiKey(ctx: Context, value: String) {

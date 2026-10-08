@@ -99,6 +99,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".DailyReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".PreMeetingReceiver"
             android:exported="false" />
 

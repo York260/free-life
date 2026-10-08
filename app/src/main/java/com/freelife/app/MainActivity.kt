@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
     private var crashText by mutableStateOf<String?>(null)
     private var briefingRequested by mutableStateOf(false)
     private var voiceRequested by mutableStateOf(false)
+    private var reviewRequested by mutableStateOf(false)
     private var voiceListen by mutableStateOf(false)
 
     private val notifPermission =
@@ -98,6 +99,8 @@ class MainActivity : ComponentActivity() {
             voiceRequested = true
         }
         BriefingScheduler.schedule(this)
+        DailyJobs.schedule(this)
+        reviewRequested = intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)
 
         setContent {
             FreeLifeTheme {
@@ -109,6 +112,12 @@ class MainActivity : ComponentActivity() {
                         if (briefingRequested) {
                             screen = Screen.BRIEFING
                             briefingRequested = false
+                        }
+                    }
+                    LaunchedEffect(reviewRequested) {
+                        if (reviewRequested) {
+                            screen = Screen.REVIEW
+                            reviewRequested = false
                         }
                     }
                     LaunchedEffect(voiceRequested) {
@@ -153,6 +162,8 @@ class MainActivity : ComponentActivity() {
                                     onDelete = { deleteReminder(it) },
                                     onTestAlarm = { testAlarm() },
                                     onOpenBriefing = { screen = Screen.BRIEFING },
+                                    onOpenReview = { screen = Screen.REVIEW },
+                                    onAdd = { addReminder(it) },
                                 )
 
                                 Screen.ASSISTANT -> AssistantScreen(
@@ -172,7 +183,13 @@ class MainActivity : ComponentActivity() {
                                     onOpenSettings = { screen = Screen.SETTINGS },
                                 )
 
-                                Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME }, onTestAlarm = { testAlarm() })
+                                Screen.SETTINGS -> SettingsScreen(
+                                    onBack = { screen = Screen.HOME },
+                                    onTestAlarm = { testAlarm() },
+                                    onDataChanged = { refreshReminders() },
+                                )
+
+                                Screen.REVIEW -> ReviewScreen(reminders = reminders, onBack = { screen = Screen.HOME })
                             }
                         }
                         if (showBar) BottomBar(screen) { screen = it }
@@ -189,6 +206,7 @@ class MainActivity : ComponentActivity() {
             briefingRequested = true
         }
         if (VoiceEntry.isVoice(intent)) voiceRequested = true
+        if (intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)) reviewRequested = true
     }
 
     override fun onPause() {

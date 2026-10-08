@@ -29,6 +29,10 @@ data class Reminder(
     val leadMin: Int = 0,
     /** 使用者指定了時間、但不響鈴(只想記錄):仍然要出現在行程圖上。 */
     val timed: Boolean = false,
+    /** 重複項目遇到國定假日/連假時跳過。 */
+    val skipHolidays: Boolean = false,
+    /** 重複到哪一天為止(含當天結束);null 代表一直重複。 */
+    val until: Long? = null,
 ) {
     /** 開始時間;舊資料沒有存開始時間,就用響鈴時間或建立時間。 */
     val start: Long get() = if (startAt > 0L) startAt else (triggerAt ?: id)
@@ -73,34 +77,29 @@ object ReminderStore {
     private const val PREF = "reminders"
     private const val KEY = "list"
 
-    @Synchronized
-    fun load(ctx: Context): List<Reminder> {
-        val raw = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY, null)
-            ?: return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                Reminder(
-                    id = o.getLong("id"),
-                    title = o.getString("title"),
-                    location = o.optString("location", ""),
-                    triggerAt = if (o.has("triggerAt") && !o.isNull("triggerAt")) o.getLong("triggerAt") else null,
-                    done = o.optBoolean("done", false),
-                    startAt = o.optLong("startAt", 0L),
-                    endAt = if (o.has("endAt") && !o.isNull("endAt")) o.getLong("endAt") else null,
-                    repeat = o.optString("repeat", ""),
-                    leadMin = o.optInt("leadMin", 0),
-                    timed = o.optBoolean("timed", false),
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
+    /** JSON 文字轉成提醒清單(備份匯入也用這個)。格式錯誤丟例外。 */
+    fun decode(raw: String): List<Reminder> {
+        val arr = JSONArray(raw)
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            Reminder(
+                id = o.getLong("id"),
+                title = o.getString("title"),
+                location = o.optString("location", ""),
+                triggerAt = if (o.has("triggerAt") && !o.isNull("triggerAt")) o.getLong("triggerAt") else null,
+                done = o.optBoolean("done", false),
+                startAt = o.optLong("startAt", 0L),
+                endAt = if (o.has("endAt") && !o.isNull("endAt")) o.getLong("endAt") else null,
+                repeat = o.optString("repeat", ""),
+                leadMin = o.optInt("leadMin", 0),
+                timed = o.optBoolean("timed", false),
+                skipHolidays = o.optBoolean("skipHolidays", false),
+                until = if (o.has("until") && !o.isNull("until")) o.getLong("until") else null,
+            )
         }
     }
 
-    @Synchronized
-    private fun save(ctx: Context, list: List<Reminder>) {
+    fun encodeArray(list: List<Reminder>): JSONArray {
         val arr = JSONArray()
         list.forEach { r ->
             val o = JSONObject()
@@ -114,13 +113,33 @@ object ReminderStore {
             if (r.repeat.isNotEmpty()) o.put("repeat", r.repeat)
             if (r.leadMin > 0) o.put("leadMin", r.leadMin)
             if (r.timed) o.put("timed", true)
+            if (r.skipHolidays) o.put("skipHolidays", true)
+            if (r.until != null) o.put("until", r.until)
             arr.put(o)
         }
+        return arr
+    }
+
+    @Synchronized
+    fun load(ctx: Context): List<Reminder> {
+        val raw = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY, null)
+            ?: return emptyList()
+        return try {
+            decode(raw)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    @Synchronized
+    fun saveAll(ctx: Context, list: List<Reminder>) {
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY, arr.toString())
+            .putString(KEY, encodeArray(list).toString())
             .apply()
     }
+
+    private fun save(ctx: Context, list: List<Reminder>) = saveAll(ctx, list)
 
     @Synchronized
     fun get(ctx: Context, id: Long): Reminder? = load(ctx).firstOrNull { it.id == id }
