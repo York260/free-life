@@ -78,6 +78,21 @@ class MainActivity : ComponentActivity() {
     private var briefingRequested by mutableStateOf(false)
     private var voiceRequested by mutableStateOf(false)
     private var reviewRequested by mutableStateOf(false)
+    private var incoming by mutableStateOf<Incoming?>(null)
+
+    /** 分享進來的文字或圖片。 */
+    private fun readShare(i: Intent?) {
+        if (i?.action != Intent.ACTION_SEND) return
+        val type = i.type ?: ""
+        if (type.startsWith("image/")) {
+            @Suppress("DEPRECATION")
+            val u = i.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM) ?: return
+            incoming = Incoming(text = i.getStringExtra(Intent.EXTRA_TEXT) ?: "", image = u)
+        } else {
+            val t = i.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+            if (t.isNotEmpty()) incoming = Incoming(text = t)
+        }
+    }
     private var voiceListen by mutableStateOf(false)
 
     private val notifPermission =
@@ -101,6 +116,7 @@ class MainActivity : ComponentActivity() {
         BriefingScheduler.schedule(this)
         DailyJobs.schedule(this)
         reviewRequested = intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)
+        if (savedInstanceState == null) readShare(intent)
 
         setContent {
             FreeLifeTheme {
@@ -113,6 +129,9 @@ class MainActivity : ComponentActivity() {
                             screen = Screen.BRIEFING
                             briefingRequested = false
                         }
+                    }
+                    LaunchedEffect(incoming?.stamp) {
+                        if (incoming != null) screen = Screen.ASSISTANT
                     }
                     LaunchedEffect(reviewRequested) {
                         if (reviewRequested) {
@@ -169,6 +188,9 @@ class MainActivity : ComponentActivity() {
                                 Screen.ASSISTANT -> AssistantScreen(
                                     listen = voiceListen,
                                     onListenHandled = { voiceListen = false },
+                                    onUpdate = { updateReminder(it) },
+                                    incoming = incoming,
+                                    onIncomingHandled = { incoming = null },
                                     reminders = reminders,
                                     onAdd = { addReminder(it) },
                                     onDelete = { deleteReminder(it) },
@@ -207,6 +229,7 @@ class MainActivity : ComponentActivity() {
         }
         if (VoiceEntry.isVoice(intent)) voiceRequested = true
         if (intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)) reviewRequested = true
+        readShare(intent)
     }
 
     override fun onPause() {

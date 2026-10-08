@@ -423,6 +423,53 @@ object ClaudeClient {
         }
     }
 
+    /** 一張圖片 + 一段文字(Claude 影像輸入)。 */
+    fun chatWithImage(apiKey: String, model: String, system: String, jpegBase64: String, prompt: String, maxTokens: Int): String {
+        val content = JSONArray()
+            .put(
+                JSONObject().put("type", "image").put(
+                    "source",
+                    JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", jpegBase64),
+                ),
+            )
+            .put(JSONObject().put("type", "text").put("text", prompt))
+        val body = JSONObject()
+            .put("model", model)
+            .put("max_tokens", maxTokens)
+            .put("system", system)
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
+        return post(apiKey, body)
+    }
+
+    private fun post(apiKey: String, body: JSONObject): String {
+        val conn = URL(ENDPOINT).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 60_000
+            conn.doOutput = true
+            conn.setRequestProperty("content-type", "application/json")
+            conn.setRequestProperty("x-api-key", apiKey)
+            conn.setRequestProperty("anthropic-version", "2023-06-01")
+            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            if (code !in 200..299) throw IOException(describeError(code, text))
+            val content = JSONObject(text).getJSONArray("content")
+            val sb = StringBuilder()
+            for (i in 0 until content.length()) {
+                val block = content.getJSONObject(i)
+                if (block.optString("type") == "text") sb.append(block.optString("text"))
+            }
+            return sb.toString()
+        } catch (e: JSONException) {
+            throw IOException("回應格式錯誤", e)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     private fun describeError(code: Int, text: String): String {
         val serverMessage = try {
             JSONObject(text).getJSONObject("error").optString("message")

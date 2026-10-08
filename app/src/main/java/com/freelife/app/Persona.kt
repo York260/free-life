@@ -39,25 +39,34 @@ object Persona {
     private val ISO_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val FULL: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd (E) HH:mm", Locale.TAIWAN)
 
-    private fun scheduleLines(reminders: List<Reminder>, now: LocalDateTime): String {
+    /** 給 AI 看的行程(附編號,AI 要改或刪時用編號指名)。 */
+    fun refList(reminders: List<Reminder>, now: LocalDateTime): List<Reminder> {
         val zone = ZoneId.systemDefault()
-        val lines = reminders
+        val nowMs = now.atZone(zone).toInstant().toEpochMilli()
+        val timed = reminders
             .filter { !it.done && it.hasTime }
+            .filter { (it.endAt ?: it.start) >= nowMs - 86_400_000L }
+            .filter { it.start <= now.plusDays(14).atZone(zone).toInstant().toEpochMilli() }
             .sortedBy { it.start }
-            .filter { (it.endAt ?: it.start) >= now.atZone(zone).toInstant().toEpochMilli() }
-            .filter { it.start <= now.plusDays(7).atZone(zone).toInstant().toEpochMilli() }
-            .take(15)
-            .map { r ->
-                val span = if (r.endAt != null) formatRange(r.start, r.endAt) else formatTrigger(r.start)
-                val loc = if (r.location.isBlank()) "" else " @${r.location}"
-                val rep = if (r.repeat.isEmpty()) "" else "(${Repeat.label(r.repeat)}重複)"
-                "- $span ${r.title}$loc$rep"
+            .take(25)
+        val quick = reminders.filter { !it.done && !it.hasTime }.take(8)
+        return timed + quick
+    }
+
+    private fun scheduleLines(reminders: List<Reminder>, now: LocalDateTime): String {
+        val refs = refList(reminders, now)
+        if (refs.isEmpty()) return "(目前沒有行程)\n"
+        return refs.mapIndexed { i, r ->
+            val span = when {
+                r.endAt != null -> formatRange(r.start, r.endAt)
+                r.hasTime -> formatTrigger(r.start)
+                else -> "小任務(沒有時間)"
             }
-        val quick = reminders.filter { !it.done && !it.hasTime }.take(5)
-        val sb = StringBuilder()
-        sb.append(if (lines.isEmpty()) "(目前沒有排程)\n" else lines.joinToString("\n") + "\n")
-        if (quick.isNotEmpty()) sb.append("沒有時間的小任務:").append(quick.joinToString("、") { it.title }).append('\n')
-        return sb.toString()
+            val loc = if (r.location.isBlank()) "" else " @${r.location}"
+            val rep = if (r.repeat.isEmpty()) "" else "(${Repeat.label(r.repeat)}重複)"
+            val ring = if (r.hasTime && r.ringless) "(只記錄)" else ""
+            "#${i + 1} $span ${r.title}$loc$rep$ring"
+        }.joinToString("\n") + "\n"
     }
 
     private fun dateTable(today: LocalDate): String {
@@ -80,11 +89,14 @@ object Persona {
         base(ctx) + "\n\n" +
             "現在是 ${now.format(FULL)}(台灣時間)。\n" +
             dateTable(now.toLocalDate()) + "\n\n" +
-            "使用者未來 7 天內未完成的行程(更久以後的未列出):\n" + scheduleLines(reminders, now) + "\n" +
+            "使用者未完成的行程(最近 14 天,#編號用來指名):\n" + scheduleLines(reminders, now) + "\n" +
             "你的工作:把使用者說的話變成提醒;或回答和行程有關的問題;或簡短閒聊。\n" +
             "只輸出一個 JSON 物件,不要任何其他文字,格式:\n" +
             "{\"say\":\"對使用者說的話\",\"ask\":false,\"reminders\":[{\"title\":\"帶文件\",\"location\":\"\"," +
-            "\"start\":\"2026-10-14T14:00\",\"end\":null,\"ring\":true,\"repeat\":\"\",\"leadMin\":0}]}\n" +
+            "\"start\":\"2026-10-14T14:00\",\"end\":null,\"ring\":true,\"repeat\":\"\",\"leadMin\":0}]," +
+            "\"updates\":[{\"ref\":3,\"start\":\"2026-10-15T14:30\",\"end\":\"2026-10-15T15:30\"}]," +
+            "\"deletes\":[{\"ref\":5}]," +
+            "\"plan\":null}\n" +
             "規則:\n" +
             "1. 一句話裡有多個提醒(例如「前一天晚上也提醒一次」)就拆成多筆,每筆有自己的 title 與 start,title 要讓人一看就懂。\n" +
             "2. 缺少必要資訊(哪一天、幾點、上午或下午不明)時,ask 設為 true、reminders 設為空陣列,在 say 裡只問一個最關鍵的問題。" +
@@ -101,6 +113,12 @@ object Persona {
             "11. 有時間的提醒,如果使用者沒提到要不要重複、也沒提到提前提醒,第一次先 ask 設為 true、reminders 設為空陣列," +
             "在 say 裡用一句話問「要重複或提前提醒嗎?」,並記住這件事的內容。使用者回答後再建立(回答「不用」「準時」就都不設)。" +
             "每件事只問一次,使用者說過不用就不要再問;小任務(沒有時間)不用問。\n" +
+            "13. 要修改或取消既有行程時,用 updates / deletes,ref 填上面清單的 # 編號;updates 只填要改的欄位(title、location、start、end、ring)," +
+            "延後或提前時 start 和 end 都要給新的值。App 會先請使用者確認才執行,所以 say 用「要把…改成…嗎?」這種口吻。找不到對應的行程就反問。\n" +
+            "14. 使用者要「找時間做某事」「這週要讀三小時書」時,不要自己排時間,改填 plan:" +
+            "{\"title\":\"讀書\",\"minutes\":180,\"from\":\"2026-10-12\",\"to\":\"2026-10-18\",\"chunk\":60,\"ring\":true}," +
+            "from/to 是日期範圍(含),chunk 是每段分鐘數(預設 60);App 會自動塞進空檔並請使用者確認。\n" +
+            "15. 問「某時段有沒有空」時,根據清單回答,reminders/updates/deletes 都留空。\n" +
             "12. 使用者常用語音輸入,文字可能有同音錯字或漏字(時間、地點、人名尤其容易),請依上下文推測原意;真的無法判斷再反問。"
 }
 
@@ -110,6 +128,20 @@ data class AiTurn(
     val ask: Boolean,
     val created: List<Reminder>,
     val skipped: List<String>,
+    /** (原本, 改後) */
+    val updates: List<Pair<Reminder, Reminder>> = emptyList(),
+    val deletes: List<Reminder> = emptyList(),
+    val plan: PlanRequest? = null,
+)
+
+/** 「找時間做某事」:App 幫忙塞進空檔。 */
+data class PlanRequest(
+    val title: String,
+    val minutes: Int,
+    val from: java.time.LocalDate,
+    val to: java.time.LocalDate,
+    val chunk: Int,
+    val ring: Boolean,
 )
 
 object AiAssistant {
@@ -125,7 +157,25 @@ object AiAssistant {
 
     /** 跟 AI 講一輪話,並把它拆出來的提醒轉成 Reminder(還沒存檔)。 */
     fun respond(ctx: Context, history: List<ChatMsg>, now: LocalDateTime, reminders: List<Reminder>): AiTurn {
-        val raw = Llm.chat(ctx, Persona.chatSystem(ctx, now, reminders), history, 450)
+        val raw = Llm.chat(ctx, Persona.chatSystem(ctx, now, reminders), history, 600)
+        return parseTurn(raw, now, reminders)
+    }
+
+    /** 圖片(公文、通知、海報、截圖)裡的行程。結果一律先給使用者確認。 */
+    fun respondImage(ctx: Context, jpegBase64: String, note: String, now: LocalDateTime, reminders: List<Reminder>): AiTurn {
+        val system = Persona.chatSystem(ctx, now, reminders) +
+            "\n\n這次使用者傳來一張圖片(可能是公文、開會通知、海報、課表或聊天截圖)。" +
+            "找出裡面所有需要記下的行程(日期、時間、地點、事由),全部放進 reminders,不要反問(ask 一律 false);" +
+            "沒寫年份就用今天之後最近的那個日期;只有日期沒有時間就把 start 設為那天 09:00 並在 say 裡提醒時間是猜的。" +
+            "say 用一兩句話摘要你找到什麼。圖片裡沒有行程就說明,reminders 留空。"
+        val prompt = if (note.isBlank()) "請讀出這張圖裡的行程。" else note
+        val raw = ClaudeClient.chatWithImage(
+            AppSettings.apiKey(ctx), AppSettings.model(ctx), system, jpegBase64, prompt, 900,
+        )
+        return parseTurn(raw, now, reminders).copy(ask = false)
+    }
+
+    private fun parseTurn(raw: String, now: LocalDateTime, reminders: List<Reminder>): AiTurn {
         val obj = Llm.extractObject(raw)
         val say = obj.optString("say").trim()
         val ask = obj.optBoolean("ask", false)
@@ -194,6 +244,57 @@ object AiAssistant {
         if (skipped.isNotEmpty()) {
             text += "(「${skipped.joinToString("、")}」的時間已經過了,沒有建立。)"
         }
-        return AiTurn(text, ask, created, skipped)
+        // 修改與刪除既有行程(用編號對回去)
+        val refs = Persona.refList(reminders, now)
+        fun ref(o: org.json.JSONObject): Reminder? {
+            val n = o.optInt("ref", -1)
+            return refs.getOrNull(n - 1)
+        }
+        val updates = mutableListOf<Pair<Reminder, Reminder>>()
+        obj.optJSONArray("updates")?.let { ua ->
+            for (i in 0 until ua.length()) {
+                val o = ua.optJSONObject(i) ?: continue
+                val old = ref(o) ?: continue
+                var r = old
+                o.optString("title", "").trim().takeIf { it.isNotEmpty() && it != "null" }?.let { r = r.copy(title = it) }
+                if (o.has("location") && !o.isNull("location")) r = r.copy(location = o.optString("location").trim())
+                val ns = parseLocal(o.optString("start", ""))
+                val ne = parseLocal(o.optString("end", ""))
+                if (ns != null) {
+                    val newStart = ns.atZone(zone).toInstant().toEpochMilli()
+                    val delta = newStart - old.start
+                    val newEnd = ne?.atZone(zone)?.toInstant()?.toEpochMilli() ?: old.endAt?.let { it + delta }
+                    r = r.copy(startAt = newStart, endAt = newEnd, timed = old.timed || old.hasTime)
+                } else if (ne != null) {
+                    r = r.copy(endAt = ne.atZone(zone).toInstant().toEpochMilli())
+                }
+                if (o.has("ring") && !o.isNull("ring")) {
+                    r = if (o.optBoolean("ring")) r.copy(triggerAt = r.start, timed = false) else r.copy(triggerAt = null, timed = true, repeat = "")
+                }
+                if (r.triggerAt != null) {
+                    val ringAt = if (r.leadMin > 0) r.start - r.leadMin * 60_000L else r.start
+                    r = r.copy(triggerAt = ringAt)
+                }
+                if (r != old) updates += Pair(old, r)
+            }
+        }
+        val deletes = mutableListOf<Reminder>()
+        obj.optJSONArray("deletes")?.let { da ->
+            for (i in 0 until da.length()) {
+                val o = da.optJSONObject(i) ?: continue
+                ref(o)?.let { deletes += it }
+            }
+        }
+        val plan = obj.optJSONObject("plan")?.let { p ->
+            val title = p.optString("title").trim()
+            val mins = p.optInt("minutes", 0)
+            val from = runCatching { java.time.LocalDate.parse(p.optString("from")) }.getOrNull() ?: now.toLocalDate()
+            val to = runCatching { java.time.LocalDate.parse(p.optString("to")) }.getOrNull() ?: from.plusDays(6)
+            if (title.isEmpty() || mins <= 0) null else PlanRequest(
+                title, mins.coerceAtMost(40 * 60), from, if (to.isBefore(from)) from else to,
+                p.optInt("chunk", 60).coerceIn(15, 240), p.optBoolean("ring", true),
+            )
+        }
+        return AiTurn(text, ask, created, skipped, updates, deletes, plan)
     }
 }

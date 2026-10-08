@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -59,7 +60,23 @@ data class ChatItem(
     val note: String = "",
     val chips: List<String> = emptyList(),
     val undone: Boolean = false,
+    /** 需要你按「確認」才會執行的變更(分享、拍照、修改、刪除、排空檔)。 */
+    val proposal: Proposal? = null,
+    /** 確認卡處理後的結果文字(「已加入」「已取消」);空字串代表還沒處理。 */
+    val resolved: String = "",
 )
+
+/** 待確認的變更。 */
+data class Proposal(
+    val adds: List<Reminder> = emptyList(),
+    val updates: List<Pair<Reminder, Reminder>> = emptyList(),
+    val deletes: List<Reminder> = emptyList(),
+) {
+    val isEmpty: Boolean get() = adds.isEmpty() && updates.isEmpty() && deletes.isEmpty()
+}
+
+/** 從別的 App 分享進來的內容。 */
+data class Incoming(val text: String = "", val image: android.net.Uri? = null, val stamp: Long = System.nanoTime())
 
 /**
  * 助理對話:打字或按麥克風用說的。
@@ -74,6 +91,9 @@ fun AssistantScreen(
     onDelete: (Reminder) -> Unit,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onUpdate: (Reminder) -> Unit = {},
+    incoming: Incoming? = null,
+    onIncomingHandled: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val main = remember { Handler(Looper.getMainLooper()) }
@@ -95,6 +115,10 @@ fun AssistantScreen(
     val speaker = remember { Speaker(ctx) }
     // 麥克風回傳時要呼叫 send,但 send 在後面才定義,用一個容器接起來
     val sendHolder = remember { arrayOfNulls<(String) -> Unit>(1) }
+    // 分享進來的內容:規則解析的結果也先給你確認,不直接入庫
+    var confirmMode by remember { mutableStateOf(false) }
+    var photoMenu by remember { mutableStateOf(false) }
+    val photoUri = remember { arrayOfNulls<android.net.Uri>(1) }
 
     DisposableEffect(Unit) {
         onDispose { speaker.shutdown() }
@@ -156,10 +180,51 @@ fun AssistantScreen(
             is Outcome.Done -> {
                 pendingAsk = null
                 val note = conflictNote(listOf(out.reminder))
-                onAdd(out.reminder)
-                say(ChatItem(false, out.message, created = listOf(out.reminder), note = note), false)
+                if (confirmMode) {
+                    confirmMode = false
+                    say(ChatItem(false, "我讀到這件事,要加入嗎?", note = note, proposal = Proposal(adds = listOf(out.reminder))), false)
+                } else {
+                    onAdd(out.reminder)
+                    say(ChatItem(false, out.message, created = listOf(out.reminder), note = note), false)
+                }
             }
         }
+    }
+
+    /** AI 的結果:新增直接加入(分享/拍照則先確認);修改、刪除、排空檔一律先確認。 */
+    fun handleTurn(turn: AiTurn, confirmAdds: Boolean) {
+        val planned = turn.plan?.let { Planner.plan(reminders.toList(), it, LocalDateTime.now()) } ?: emptyList()
+        val adds = if (confirmAdds) turn.created + planned else planned
+        val proposal = Proposal(adds = adds, updates = turn.updates, deletes = turn.deletes)
+        val direct = if (confirmAdds) emptyList() else turn.created
+        direct.forEach { onAdd(it) }
+        val note = conflictNote(direct + adds)
+        var text = turn.say
+        if (turn.plan != null && planned.isEmpty()) text += "(這段期間找不到足夠的空檔。)"
+        say(
+            ChatItem(
+                false, text, created = direct, note = note,
+                proposal = if (proposal.isEmpty) null else proposal,
+            ),
+            turn.ask,
+        )
+    }
+
+    fun applyProposal(idx: Int, ok: Boolean) {
+        val item = items.getOrNull(idx) ?: return
+        val p = item.proposal ?: return
+        if (!ok) {
+            items[idx] = item.copy(resolved = "已取消")
+            return
+        }
+        p.adds.forEach { onAdd(it) }
+        p.updates.forEach { (_, n) -> onUpdate(n) }
+        p.deletes.forEach { onDelete(it) }
+        val bits = mutableListOf<String>()
+        if (p.adds.isNotEmpty()) bits += "已加入 ${p.adds.size} 件"
+        if (p.updates.isNotEmpty()) bits += "已修改 ${p.updates.size} 件"
+        if (p.deletes.isNotEmpty()) bits += "已刪除 ${p.deletes.size} 件"
+        items[idx] = item.copy(resolved = bits.joinToString("、"))
     }
 
     fun send(text: String) {
@@ -169,6 +234,19 @@ fun AssistantScreen(
         alts = emptyList()
         speaker.stop()
         items.add(ChatItem(true, t))
+        if (!aiOn && pendingAsk == null) {
+            // 沒接 AI 也能排空檔:「這週要讀書三小時」
+            val req = Planner.parse(t, LocalDateTime.now())
+            if (req != null) {
+                val blocks = Planner.plan(reminders.toList(), req, LocalDateTime.now())
+                if (blocks.isEmpty()) {
+                    say(ChatItem(false, "這段期間找不到足夠的空檔。"), false)
+                } else {
+                    say(ChatItem(false, "幫你在空檔排了 ${blocks.size} 段「${req.title}」,要加入嗎?", proposal = Proposal(adds = blocks)), false)
+                }
+                return
+            }
+        }
         if (!aiOn || pendingAsk != null) {
             ruleReply(t)
             return
@@ -195,11 +273,10 @@ fun AssistantScreen(
                 busy = false
                 val turn = result.getOrNull()
                 if (turn != null) {
-                    val note = conflictNote(turn.created)
-                    turn.created.forEach { onAdd(it) }
                     history.add(ChatMsg(false, turn.say))
                     aiWaiting = turn.ask
-                    say(ChatItem(false, turn.say, created = turn.created, note = note), turn.ask)
+                    handleTurn(turn, confirmAdds = confirmMode)
+                    confirmMode = false
                 } else {
                     history.removeAt(history.size - 1)
                     items.add(ChatItem(false, "AI 連線出了問題(${result.exceptionOrNull()?.message}),這句改用內建解析。"))
@@ -209,6 +286,55 @@ fun AssistantScreen(
         }.start()
     }
     sendHolder[0] = { send(it) }
+
+    fun sendImage(uri: android.net.Uri, note: String) {
+        if (busy) return
+        items.add(ChatItem(true, if (note.isBlank()) "(傳了一張圖片)" else "(圖片)$note"))
+        if (!aiOn) {
+            say(ChatItem(false, "讀圖片需要 AI。請到設定填入 Claude 金鑰,或把圖片上的文字打給我。"), false)
+            return
+        }
+        busy = true
+        val snapshot = reminders.toList()
+        Thread {
+            val result = try {
+                val b64 = ImageUtil.jpegBase64(ctx, uri)
+                Result.success(AiAssistant.respondImage(ctx, b64, note, LocalDateTime.now(), snapshot))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            main.post {
+                busy = false
+                val turn = result.getOrNull()
+                if (turn != null) {
+                    handleTurn(turn, confirmAdds = true)
+                } else {
+                    items.add(ChatItem(false, "讀不了這張圖片(${result.exceptionOrNull()?.message})。"))
+                }
+            }
+        }.start()
+    }
+
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val u = photoUri[0]
+        if (ok && u != null) sendImage(u, input.trim().also { input = "" })
+    }
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
+        if (u != null) sendImage(u, input.trim().also { input = "" })
+    }
+
+    // 從 LINE 等 App 分享進來:讀出行程後先問你,不直接入庫
+    LaunchedEffect(incoming?.stamp) {
+        val inc = incoming ?: return@LaunchedEffect
+        onIncomingHandled()
+        if (inc.image != null) {
+            sendImage(inc.image, inc.text)
+        } else if (inc.text.isNotBlank()) {
+            confirmMode = true
+            pendingAsk = null
+            send(inc.text.take(1500))
+        }
+    }
 
     // 只有從小工具、磁貼、捷徑進來那一次才自動開始聽
     LaunchedEffect(listen) {
@@ -269,6 +395,7 @@ fun AssistantScreen(
                         item.created.forEach { onDelete(it) }
                         items[idx] = item.copy(undone = true)
                     },
+                    onConfirm = { applyProposal(idx, it) },
                 )
             }
             if (busy) {
@@ -300,6 +427,32 @@ fun AssistantScreen(
                 .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Box {
+                OutlinedButton(
+                    onClick = { photoMenu = true },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
+                ) {
+                    AppIcon(Glyph.CAMERA, MaterialTheme.colorScheme.primary, 20.dp)
+                }
+                androidx.compose.material3.DropdownMenu(expanded = photoMenu, onDismissRequest = { photoMenu = false }) {
+                    androidx.compose.material3.DropdownMenuItem(text = { Text("拍照建行程") }, onClick = {
+                        photoMenu = false
+                        try {
+                            val f = java.io.File(ctx.cacheDir, "shots").apply { mkdirs() }.let { java.io.File(it, "shot.jpg") }
+                            val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+                            photoUri[0] = u
+                            takePhoto.launch(u)
+                        } catch (e: Exception) {
+                            items.add(ChatItem(false, "開不了相機:${e.message}"))
+                        }
+                    })
+                    androidx.compose.material3.DropdownMenuItem(text = { Text("從相簿選圖片") }, onClick = {
+                        photoMenu = false
+                        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    })
+                }
+            }
+            Spacer(Modifier.padding(start = 6.dp))
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -326,6 +479,7 @@ private fun Bubble(
     showChips: Boolean,
     onChip: (String) -> Unit,
     onUndo: () -> Unit,
+    onConfirm: (Boolean) -> Unit = {},
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -369,6 +523,7 @@ private fun Bubble(
                         TextButton(onClick = onUndo) { Text("復原") }
                     }
                 }
+                item.proposal?.let { p -> ProposalView(p, item.resolved, onConfirm) }
                 if (item.note.isNotBlank()) {
                     Text(
                         text = item.note,
@@ -401,3 +556,48 @@ private val CHAT_HINTS = Regex(
 
 /** 短短一句、沒有疑問和多重要求的記事,才交給免費的規則解析。 */
 private fun looksSimple(t: String): Boolean = t.length <= 40 && !CHAT_HINTS.containsMatchIn(t)
+
+/** 確認卡:列出要新增、修改、刪除的內容,按「確認」才執行。 */
+@Composable
+private fun ProposalView(p: Proposal, resolved: String, onConfirm: (Boolean) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    fun span(r: Reminder) = when {
+        r.endAt != null -> formatRange(r.start, r.endAt)
+        r.hasTime -> formatTrigger(r.start)
+        else -> "小任務"
+    }
+    Column(modifier = Modifier.padding(top = 6.dp)) {
+        p.adds.forEach { r ->
+            Text(
+                "+ ${span(r)} ${r.title}" + (if (r.location.isBlank()) "" else " @${r.location}") + (if (r.ringless) "(只記錄)" else ""),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.primary,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        p.updates.forEach { (o, n) ->
+            Text(
+                "✎ ${o.title}:${span(o)} → ${span(n)}" + (if (o.title != n.title) "(改名為「${n.title}」)" else ""),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.tertiary,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        p.deletes.forEach { r ->
+            Text(
+                "− ${span(r)} ${r.title}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.error,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        if (resolved.isNotEmpty()) {
+            Text(resolved, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                Button(onClick = { onConfirm(true) }) { Text("確認") }
+                TextButton(onClick = { onConfirm(false) }) { Text("取消") }
+            }
+        }
+    }
+}
