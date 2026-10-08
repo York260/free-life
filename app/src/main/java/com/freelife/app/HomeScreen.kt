@@ -136,7 +136,8 @@ fun HomeScreen(
     }
 
     val label = when (mode) {
-        MODE_DAY -> anchor.format(DAY_LABEL) + if (anchor == today) "  今天" else ""
+        MODE_DAY -> anchor.format(DAY_LABEL) + (if (anchor == today) "  今天" else "") +
+            (Holidays.name(anchor) ?: if (Holidays.longBreak(anchor) != null) "連假" else null)?.let { "  $it" }.orEmpty()
         MODE_WEEK -> "${weekStart.format(MD)} – ${weekStart.plusDays(6).format(MD)}" +
             if (weekStart == today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))) "  本週" else ""
         else -> "${month.year} 年 ${month.monthValue} 月" + if (month == YearMonth.from(today)) "  本月" else ""

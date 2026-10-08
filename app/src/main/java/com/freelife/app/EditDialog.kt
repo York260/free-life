@@ -94,6 +94,7 @@ fun EditReminderDialog(
     var ring by remember(r.id) { mutableStateOf(r.triggerAt != null) }
     var repeat by remember(r.id) { mutableStateOf(r.repeat) }
     var lead by remember(r.id) { mutableStateOf(r.leadMin) }
+    var skipHol by remember(r.id) { mutableStateOf(r.skipHolidays) }
     var error by remember(r.id) { mutableStateOf<String?>(null) }
 
     fun pickDate(current: LocalDateTime, onPicked: (LocalDateTime) -> Unit) {
@@ -198,14 +199,24 @@ fun EditReminderDialog(
                     Switch(checked = ring, onCheckedChange = { ring = it })
                 }
 
+                Text(
+                    text = "重複",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                ChoiceRow(Repeat.OPTIONS, repeat) { repeat = it }
+                if (repeat.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("國定假日、連假跳過")
+                        Switch(checked = skipHol, onCheckedChange = { skipHol = it })
+                    }
+                }
                 if (ring) {
-                    Text(
-                        text = "重複",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 16.dp),
-                    )
-                    ChoiceRow(Repeat.OPTIONS, repeat) { repeat = it }
 
                     Text(
                         text = "提前響鈴",
@@ -259,10 +270,7 @@ fun EditReminderDialog(
                 val startMs = toMillis(start)
                 val endMs = if (hasEnd) toMillis(end) else null
                 val ringOn = ring
-                if (!ring) {
-                    repeat = ""
-                    lead = 0
-                }
+                if (!ring) lead = 0
                 val leadMs = lead * 60_000L
                 val ringAt = if (lead > 0 && startMs - leadMs > System.currentTimeMillis()) startMs - leadMs else startMs
                 when {
@@ -282,6 +290,7 @@ fun EditReminderDialog(
                             timed = !ringOn && (r.timed || r.triggerAt != null || r.endAt != null || startMs != r.start),
                             repeat = repeat,
                             leadMin = lead,
+                            skipHolidays = repeat.isNotEmpty() && skipHol,
                         ),
                     )
                 }

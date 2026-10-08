@@ -83,6 +83,11 @@ object Repeat {
             cur = shift(cur)
             n++
         }
+        // 假日跳過:落在國定假日/連假就再往後一次
+        while (cur.repeat.isNotEmpty() && cur.skipHolidays && Holidays.isHoliday(toLocal(cur.start).toLocalDate()) && n < 1100) {
+            cur = shift(cur)
+            n++
+        }
         return cur
     }
 }

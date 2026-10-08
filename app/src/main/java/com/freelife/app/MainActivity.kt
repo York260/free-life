@@ -209,6 +209,16 @@ class MainActivity : ComponentActivity() {
                                     onBack = { screen = Screen.HOME },
                                     onTestAlarm = { testAlarm() },
                                     onDataChanged = { refreshReminders() },
+                                    onOpenTimetable = { screen = Screen.TIMETABLE },
+                                )
+
+                                Screen.TIMETABLE -> TimetableScreen(
+                                    reminders = reminders,
+                                    onSave = { list, replace ->
+                                        if (replace) reminders.filter { it.tag == TIMETABLE_TAG }.toList().forEach { deleteReminder(it) }
+                                        list.forEach { addReminder(it) }
+                                    },
+                                    onBack = { screen = Screen.SETTINGS },
                                 )
 
                                 Screen.REVIEW -> ReviewScreen(reminders = reminders, onBack = { screen = Screen.HOME })

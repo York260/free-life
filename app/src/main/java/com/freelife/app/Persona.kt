@@ -84,16 +84,26 @@ object Persona {
         return sb.toString()
     }
 
+    private fun holidayLines(today: java.time.LocalDate): String {
+        val br = Holidays.breaksBetween(today, today.plusDays(90))
+        val singles = (0..90L).map { today.plusDays(it) }
+            .filter { Holidays.isHoliday(it) && Holidays.longBreak(it) == null }
+        val parts = br.map { "${it.third}連假 ${it.first.format(ISO_DAY)}~${it.second.format(ISO_DAY)}" } +
+            singles.map { "${Holidays.name(it)} ${it.format(ISO_DAY)}" }
+        return if (parts.isEmpty()) "近期沒有國定假日。" else "近期國定假日:" + parts.joinToString(";") + "。"
+    }
+
     /** 對話用的系統提示詞:人格 + 現在時間 + 目前行程 + 輸出格式與規則。 */
     fun chatSystem(ctx: Context, now: LocalDateTime, reminders: List<Reminder>): String =
         base(ctx) + "\n\n" +
             "現在是 ${now.format(FULL)}(台灣時間)。\n" +
-            dateTable(now.toLocalDate()) + "\n\n" +
+            dateTable(now.toLocalDate()) + "\n" + holidayLines(now.toLocalDate()) + "\n\n" +
             "使用者未完成的行程(最近 14 天,#編號用來指名):\n" + scheduleLines(reminders, now) + "\n" +
             "你的工作:把使用者說的話變成提醒;或回答和行程有關的問題;或簡短閒聊。\n" +
             "只輸出一個 JSON 物件,不要任何其他文字,格式:\n" +
             "{\"say\":\"對使用者說的話\",\"ask\":false,\"reminders\":[{\"title\":\"帶文件\",\"location\":\"\"," +
-            "\"start\":\"2026-10-14T14:00\",\"end\":null,\"ring\":true,\"repeat\":\"\",\"leadMin\":0}]," +
+            "\"start\":\"2026-10-14T14:00\",\"end\":null,\"ring\":true,\"repeat\":\"\",\"leadMin\":0," +
+            "\"skipHolidays\":false,\"until\":null}]," +
             "\"updates\":[{\"ref\":3,\"start\":\"2026-10-15T14:30\",\"end\":\"2026-10-15T15:30\"}]," +
             "\"deletes\":[{\"ref\":5}]," +
             "\"plan\":null}\n" +
@@ -119,6 +129,8 @@ object Persona {
             "{\"title\":\"讀書\",\"minutes\":180,\"from\":\"2026-10-12\",\"to\":\"2026-10-18\",\"chunk\":60,\"ring\":true}," +
             "from/to 是日期範圍(含),chunk 是每段分鐘數(預設 60);App 會自動塞進空檔並請使用者確認。\n" +
             "15. 問「某時段有沒有空」時,根據清單回答,reminders/updates/deletes 都留空。\n" +
+            "16. 有重複(repeat 不是空字串)的新提醒,如果使用者沒說國定假日要不要照常,先 ask=true 問一句「國定假日和連假也要嗎?」;" +
+            "回答不要就設 skipHolidays=true。until 是重複的最後一天(yyyy-MM-dd),沒說就 null。\n" +
             "12. 使用者常用語音輸入,文字可能有同音錯字或漏字(時間、地點、人名尤其容易),請依上下文推測原意;真的無法判斷再反問。"
 }
 
@@ -217,7 +229,6 @@ object AiAssistant {
                 }
                 val startMs = start.atZone(zone).toInstant().toEpochMilli()
                 val ringOn = ring
-                if (!ring) repeat = ""
                 val ringAt = if (lead > 0 && startMs - lead * 60_000L > nowMs) startMs - lead * 60_000L else startMs
                 created += Reminder(
                     id = Assistant.newId(),
@@ -227,6 +238,9 @@ object AiAssistant {
                     startAt = startMs,
                     endAt = endMs,
                     timed = !ringOn,
+                    skipHolidays = repeat.isNotEmpty() && o.optBoolean("skipHolidays", false),
+                    until = runCatching { java.time.LocalDate.parse(o.optString("until")) }.getOrNull()
+                        ?.atTime(23, 59)?.atZone(zone)?.toInstant()?.toEpochMilli(),
                     repeat = repeat,
                     leadMin = lead,
                 )

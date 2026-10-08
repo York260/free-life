@@ -33,6 +33,8 @@ data class Reminder(
     val skipHolidays: Boolean = false,
     /** 重複到哪一天為止(含當天結束);null 代表一直重複。 */
     val until: Long? = null,
+    /** 分組標記,例如 "timetable" = 課表。 */
+    val tag: String = "",
 ) {
     /** 開始時間;舊資料沒有存開始時間,就用響鈴時間或建立時間。 */
     val start: Long get() = if (startAt > 0L) startAt else (triggerAt ?: id)
@@ -95,6 +97,7 @@ object ReminderStore {
                 timed = o.optBoolean("timed", false),
                 skipHolidays = o.optBoolean("skipHolidays", false),
                 until = if (o.has("until") && !o.isNull("until")) o.getLong("until") else null,
+                tag = o.optString("tag", ""),
             )
         }
     }
@@ -115,6 +118,7 @@ object ReminderStore {
             if (r.timed) o.put("timed", true)
             if (r.skipHolidays) o.put("skipHolidays", true)
             if (r.until != null) o.put("until", r.until)
+            if (r.tag.isNotEmpty()) o.put("tag", r.tag)
             arr.put(o)
         }
         return arr

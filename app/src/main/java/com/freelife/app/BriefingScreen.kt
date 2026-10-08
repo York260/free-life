@@ -43,7 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import java.time.LocalDateTime
 
-enum class Screen { HOME, BRIEFING, SETTINGS, ASSISTANT, REVIEW }
+enum class Screen { HOME, BRIEFING, SETTINGS, ASSISTANT, REVIEW, TIMETABLE }
 
 private fun itemText(i: Item): String {
     val loc = if (i.r.location.isBlank()) "" else " @${i.r.location}"
@@ -249,7 +249,12 @@ fun BriefingScreen(
 
 /** 設定:每日確認時間、Claude API 金鑰(選填)。 */
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}, onDataChanged: () -> Unit = {}) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onTestAlarm: () -> Unit = {},
+    onDataChanged: () -> Unit = {},
+    onOpenTimetable: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     var enabled by remember { mutableStateOf(AppSettings.briefingEnabled(ctx)) }
     var minutes by remember { mutableStateOf(AppSettings.briefingMinutes(ctx)) }
@@ -418,6 +423,9 @@ fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}, onDataChang
                 AppSettings.setWeeklyEnabled(ctx, it)
                 resched()
             })
+
+            SectionTitle("課表")
+            OutlinedButton(onClick = onOpenTimetable) { Text("設定這學期的課表") }
 
             SectionTitle("備份")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

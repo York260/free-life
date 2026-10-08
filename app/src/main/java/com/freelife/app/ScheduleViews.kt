@@ -40,6 +40,9 @@ import java.time.format.DateTimeFormatter
 private val HM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 val WEEKDAY_CHARS = listOf("一", "二", "三", "四", "五", "六", "日")
 
+/** 假日的紅色。 */
+val HOLIDAY_RED = androidx.compose.ui.graphics.Color(0xFFFF6B6B)
+
 private fun minutes(t: LocalTime): Int = t.hour * 60 + t.minute
 
 private fun durationText(from: LocalDateTime, to: LocalDateTime): String {
@@ -353,6 +356,9 @@ fun WeekView(
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant,
                     )
+                    Holidays.shortName(day)?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = HOLIDAY_RED, maxLines = 1)
+                    }
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     WeekTrack(items, if (isToday) now else null)
@@ -500,7 +506,11 @@ fun MonthView(
                                 text = "$dayNum",
                                 fontSize = 13.sp,
                                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isToday) scheme.onPrimary else scheme.onSurface,
+                                color = when {
+                                    isToday -> scheme.onPrimary
+                                    Holidays.isHoliday(day) -> HOLIDAY_RED
+                                    else -> scheme.onSurface
+                                },
                             )
                         }
                         Row(
@@ -525,6 +535,9 @@ fun MonthView(
                                     color = scheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                        Holidays.shortName(day)?.let {
+                            Text(it, fontSize = 8.sp, color = HOLIDAY_RED, maxLines = 1)
                         }
                     }
                 }

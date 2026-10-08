@@ -6,7 +6,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-enum class Kind { AMPM, TIME, LOCATION, START, END, REPEAT, LEAD }
+enum class Kind { AMPM, TIME, LOCATION, START, END, REPEAT, LEAD, HOLIDAY }
 
 sealed class Outcome {
     /** 資訊不夠,需要追問使用者。 */
@@ -179,6 +179,11 @@ object Assistant {
                 }
             }
 
+            Kind.HOLIDAY -> {
+                val skip = Regex("跳過|不要|不用|不|停|休").containsMatchIn(t) && !t.contains("照常")
+                advance(draft.copy(skipHolidays = skip, askedHoliday = true), now)
+            }
+
             Kind.LEAD -> {
                 if (ReminderParser.NO_RING_RE.containsMatchIn(t) || t == "不提醒") {
                     return advance(draft.copy(noRing = true, askedLead = true, askedRepeat = true), now)
@@ -310,6 +315,9 @@ object Assistant {
             if (!d.askedRepeat && d.repeat.isEmpty() && !d.noRing) {
                 return Outcome.Ask(d, Kind.REPEAT, "要重複嗎?", REPEAT_CHIPS)
             }
+            if (d.repeat.isNotEmpty() && d.repeat != "monthly" && !d.askedHoliday) {
+                return Outcome.Ask(d, Kind.HOLIDAY, "國定假日和連假也要嗎?", listOf("假日照常", "假日跳過"))
+            }
         }
 
         val startMs = dt.atZone(zone).toInstant().toEpochMilli()
@@ -324,7 +332,7 @@ object Assistant {
         }
         val trig: Long? = if (d.noRing) null else ringMs
         val rep = Repeat.label(d.repeat)
-        val repText = if (rep.isEmpty()) "" else "(重複:$rep)"
+        val repText = if (rep.isEmpty()) "" else "(重複:$rep" + (if (d.skipHolidays) ",假日跳過" else "") + ")"
         val where = if (d.location.isBlank()) "" else " @${d.location}"
         if (end != null) {
             val endMs = end.atZone(zone).toInstant().toEpochMilli()
@@ -332,7 +340,7 @@ object Assistant {
                 id = newId(), title = d.title, location = d.location,
                 triggerAt = trig, startAt = startMs, endAt = endMs,
                 repeat = if (d.noRing) "" else d.repeat, leadMin = if (d.noRing) 0 else d.leadMin,
-                timed = d.noRing,
+                timed = d.noRing, skipHolidays = d.skipHolidays && d.repeat.isNotEmpty(),
             )
             return Outcome.Done(r, "已設定排程$repText:${formatRange(startMs, endMs)} ${d.title}$where($ringText)")
         }
@@ -340,7 +348,7 @@ object Assistant {
             id = newId(), title = d.title, location = d.location,
             triggerAt = trig, startAt = startMs,
             repeat = if (d.noRing) "" else d.repeat, leadMin = if (d.noRing) 0 else d.leadMin,
-            timed = d.noRing,
+            timed = d.noRing, skipHolidays = d.skipHolidays && d.repeat.isNotEmpty(),
         )
         return Outcome.Done(r, "已記下小任務$repText:${formatTrigger(startMs)} ${d.title}$where($ringText)")
     }

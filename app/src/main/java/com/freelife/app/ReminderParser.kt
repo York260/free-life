@@ -33,6 +33,8 @@ data class Draft(
     val askedRepeat: Boolean = false,
     val askedLead: Boolean = false,
     val noRing: Boolean = false,
+    val skipHolidays: Boolean = false,
+    val askedHoliday: Boolean = false,
 )
 
 /** 不需要網路、不需要 AI 的中文日期時間解析(第一版)。 */

@@ -37,8 +37,11 @@ object ScheduleModel {
             }
             var cur = s0
             var n = 0
+            val until = r.until?.let { local(it) }
             while (cur.toLocalDate().isBefore(toExclusive) && n < 800) {
-                if (!cur.toLocalDate().isBefore(from)) out += Occ(r, cur, span?.let { cur.plus(it) })
+                if (until != null && cur.isAfter(until)) break
+                val skip = r.skipHolidays && Holidays.isHoliday(cur.toLocalDate())
+                if (!skip && !cur.toLocalDate().isBefore(from)) out += Occ(r, cur, span?.let { cur.plus(it) })
                 cur = Repeat.next(cur, r.repeat)
                 n++
             }

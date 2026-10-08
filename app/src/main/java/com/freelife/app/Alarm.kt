@@ -81,6 +81,7 @@ object AlarmScheduler {
         PreMeetingScheduler.schedule(ctx, r)
         val at = r.triggerAt ?: return true
         if (r.done || at <= System.currentTimeMillis()) return true
+        if (r.until != null && r.start > r.until) return true
         return try {
             val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val show = PendingIntent.getActivity(
@@ -671,9 +672,21 @@ class AlarmReceiver : BroadcastReceiver() {
         if (r.done) return
         var ringId = id
         if (r.repeat.isNotEmpty()) {
-            // 重複提醒:這一次用單次副本去響,系列本身往後移到下一次
             val now = System.currentTimeMillis()
-            val clone = r.copy(id = Assistant.newId(), repeat = "", leadMin = 0, triggerAt = now, done = false)
+            if ((r.until != null && r.start > r.until) ||
+                (r.skipHolidays && Holidays.isHoliday(java.time.LocalDate.now()))
+            ) {
+                // 已過重複結束日,或今天是假日:這次不響,排到下一次
+                val next = Repeat.advance(Repeat.shift(r), now)
+                ReminderStore.upsert(context, next)
+                AlarmScheduler.schedule(context, next)
+                return
+            }
+            // 重複提醒:這一次用單次副本去響,系列本身往後移到下一次
+            val clone = r.copy(
+                id = Assistant.newId(), repeat = "", leadMin = 0, triggerAt = now, done = false,
+                skipHolidays = false, until = null, tag = "",
+            )
             ReminderStore.upsert(context, clone)
             val next = Repeat.advance(Repeat.shift(r), now)
             ReminderStore.upsert(context, next)
