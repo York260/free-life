@@ -34,12 +34,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -154,14 +158,13 @@ fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column {
-                Text("行程", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    today.format(DAY_LABEL),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                "行程",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 HeaderAction(Glyph.CHECKLIST, "小任務", quick.count { !it.done }) { showQuick = true }
                 HeaderAction(Glyph.SUN, "簡報", 0, onOpenBriefing)
@@ -198,11 +201,24 @@ fun HomeScreen(
             }
         }
 
+        val scroll = rememberScrollState()
+        val density = LocalDensity.current
+        var timelineTop by remember { mutableStateOf(-1f) }
+        // 打開本日時,直接捲到「現在」前一小時,不用自己往下滑
+        LaunchedEffect(mode, anchor, timelineTop > 0f) {
+            if (mode == MODE_DAY && anchor == today && timelineTop > 0f) {
+                val dy = with(density) { DayTimelineMetrics.nowOffset(anchor, occs, LocalDateTime.now()).toPx() }
+                val target = (timelineTop + dy - with(density) { 60.dp.toPx() }).toInt().coerceAtLeast(0)
+                scroll.animateScrollTo(target)
+            } else if (mode != MODE_DAY || anchor != today) {
+                scroll.scrollTo(0)
+            }
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scroll),
         ) {
             if (exactAlarmMissing) {
                 PermissionCard("需要允許「鬧鐘與提醒」才能準時響", "設定", onGrantExactAlarm)
@@ -248,8 +264,21 @@ fun HomeScreen(
 
             when (mode) {
                 MODE_DAY -> {
-                    DaySummary(anchor, occs, now)
-                    DayTimeline(anchor, occs, now) { editing = it }
+                    val tomorrowFirst = if (anchor == today) {
+                        ScheduleModel.occurrences(all, today.plusDays(1), today.plusDays(2))
+                            .filter { !it.r.done }
+                            .minByOrNull { it.start }
+                    } else {
+                        null
+                    }
+                    DaySummary(anchor, occs, now, tomorrowFirst)
+                    Box(
+                        modifier = Modifier.onGloballyPositioned { c ->
+                            timelineTop = c.positionInParent().y
+                        },
+                    ) {
+                        DayTimeline(anchor, occs, now) { editing = it }
+                    }
                 }
 
                 MODE_WEEK -> {
@@ -371,7 +400,7 @@ private fun ModeSwitch(selected: Int, onSelect: (Int) -> Unit) {
 
 /** 本日頂端的「下一件」卡片與一句話摘要。 */
 @Composable
-private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime) {
+private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime, tomorrowFirst: Occ? = null) {
     val scheme = MaterialTheme.colorScheme
     val items = ScheduleModel.forDay(occs, day)
     val open = items.count { !it.r.done }
@@ -397,11 +426,34 @@ private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime) {
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             if (next == null) {
-                Text(
-                    "今天沒有更多行程了",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = scheme.onPrimaryContainer,
-                )
+                if (tomorrowFirst == null) {
+                    Text(
+                        "今天沒有更多行程了",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = scheme.onPrimaryContainer,
+                    )
+                } else {
+                    Text(
+                        "今天結束了 · 明天第一件",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = scheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    )
+                    Text(
+                        "${tomorrowFirst.start.format(HM)}  ${tomorrowFirst.r.title}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onPrimaryContainer,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (tomorrowFirst.r.location.isNotBlank()) {
+                        Text(
+                            "@ ${tomorrowFirst.r.location}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onPrimaryContainer.copy(alpha = 0.8f),
+                        )
+                    }
+                }
             } else {
                 val started = !next.start.isAfter(now)
                 val mins = Duration.between(now, next.start).toMinutes()
@@ -468,7 +520,7 @@ private fun AgendaRow(o: Occ, now: LocalDateTime, onClick: (Reminder) -> Unit) {
                 .width(4.dp)
                 .height(32.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(if (o.end == null) scheme.tertiary else scheme.primary),
+                .background(if (r.done) scheme.outline else if (o.end == null) scheme.tertiary else scheme.primary),
         )
         Column(modifier = Modifier.padding(start = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -581,6 +633,8 @@ private fun HeaderAction(glyph: Glyph, label: String, badge: Int, onClick: () ->
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
                     color = scheme.onSurface,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.padding(start = 6.dp),
                 )
             }

@@ -68,7 +68,7 @@ fun DayTimeline(
 ) {
     val items = ScheduleModel.forDay(occs, day)
     val placed = ScheduleModel.layout(items)
-    val firstHour = minOf(7, items.minOfOrNull { it.start.hour } ?: 7)
+    val firstHour = DayTimelineMetrics.firstHour(items)
     val lastHour = (
         items.maxOfOrNull { o ->
             val e = o.effectiveEnd
@@ -218,10 +218,23 @@ private fun EventBlock(
     val r = o.r
     val point = o.end == null
     val scheme = MaterialTheme.colorScheme
-    val info = r.ringless
-    val container = if (point) scheme.tertiaryContainer else scheme.primaryContainer
-    val content = if (point) scheme.onTertiaryContainer else scheme.onPrimaryContainer
-    val accent = if (point) scheme.tertiary else scheme.primary
+    val info = r.ringless && !r.done
+    // 完成的一律灰色,一眼就跟還沒做的分開
+    val container = when {
+        r.done -> scheme.surfaceVariant
+        point -> scheme.tertiaryContainer
+        else -> scheme.primaryContainer
+    }
+    val content = when {
+        r.done -> scheme.onSurfaceVariant.copy(alpha = 0.75f)
+        point -> scheme.onTertiaryContainer
+        else -> scheme.onPrimaryContainer
+    }
+    val accent = when {
+        r.done -> scheme.outline
+        point -> scheme.tertiary
+        else -> scheme.primary
+    }
     val clash = ScheduleModel.hasClash(p)
     val overdue = !r.done && o.effectiveEnd.isBefore(now) && r.repeat.isEmpty()
     val ongoing = !r.done && !o.start.isAfter(now) && o.effectiveEnd.isAfter(now) && !point
@@ -238,8 +251,8 @@ private fun EventBlock(
 
     var m = modifier
         .clip(shape)
-        .background(container.copy(alpha = if (r.done) 0.45f else if (info) 0.5f else 1f))
-    if (clash || overdue) {
+        .background(container.copy(alpha = if (r.done) 0.6f else if (info) 0.5f else 1f))
+    if (!r.done && (clash || overdue)) {
         m = m.border(1.5.dp, scheme.error, shape)
     } else if (info && !r.done) {
         m = m.border(1.dp, accent.copy(alpha = 0.7f), shape)
@@ -249,7 +262,7 @@ private fun EventBlock(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(4.dp)
-                .background(accent.copy(alpha = if (r.done) 0.45f else 1f)),
+                .background(accent),
         )
         Column(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -552,5 +565,19 @@ fun ScheduleLegend() {
         item(scheme.primary, "排程")
         item(scheme.tertiary, "有時間的小任務")
         item(scheme.primary, "只記錄", hollow = true)
+    }
+}
+
+/** 時間軸的尺寸計算(行程頁用來捲到「現在」)。 */
+object DayTimelineMetrics {
+    val HOUR_HEIGHT = 60.dp
+
+    fun firstHour(items: List<Occ>): Int = minOf(7, items.minOfOrNull { it.start.hour } ?: 7)
+
+    /** 「現在」這條線離時間軸頂端多遠。 */
+    fun nowOffset(day: LocalDate, occs: List<Occ>, now: LocalDateTime): androidx.compose.ui.unit.Dp {
+        val first = firstHour(ScheduleModel.forDay(occs, day))
+        val m = now.hour * 60 + now.minute - first * 60
+        return HOUR_HEIGHT * (m.coerceAtLeast(0) / 60f)
     }
 }
