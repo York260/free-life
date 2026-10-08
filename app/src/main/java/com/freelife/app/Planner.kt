@@ -30,7 +30,7 @@ object Planner {
                 val until = LocalDateTime.of(d, DAY_END)
                 if (!from.isBefore(until)) continue
                 val len = minOf(chunk, remaining)
-                val gap = ScheduleModel.freeGaps(ScheduleModel.forDay(occs, d), from, until, len.toInt())
+                val gap = ScheduleModel.freeGaps(ScheduleModel.forDay(occs, d), from, until, len)
                     .firstOrNull() ?: continue
                 // 每段前後留 10 分鐘緩衝(空檔夠大時)
                 val start = if (Duration.between(gap.first, gap.second).toMinutes() >= len + 20) gap.first.plusMinutes(10) else gap.first
