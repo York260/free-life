@@ -42,7 +42,7 @@ object Persona {
     private fun scheduleLines(reminders: List<Reminder>, now: LocalDateTime): String {
         val zone = ZoneId.systemDefault()
         val lines = reminders
-            .filter { !it.done && (it.triggerAt != null || it.endAt != null) }
+            .filter { !it.done && it.hasTime }
             .sortedBy { it.start }
             .filter { (it.endAt ?: it.start) >= now.atZone(zone).toInstant().toEpochMilli() }
             .filter { it.start <= now.plusDays(7).atZone(zone).toInstant().toEpochMilli() }
@@ -53,7 +53,7 @@ object Persona {
                 val rep = if (r.repeat.isEmpty()) "" else "(${Repeat.label(r.repeat)}重複)"
                 "- $span ${r.title}$loc$rep"
             }
-        val quick = reminders.filter { !it.done && it.triggerAt == null && it.endAt == null }.take(5)
+        val quick = reminders.filter { !it.done && !it.hasTime }.take(5)
         val sb = StringBuilder()
         sb.append(if (lines.isEmpty()) "(目前沒有排程)\n" else lines.joinToString("\n") + "\n")
         if (quick.isNotEmpty()) sb.append("沒有時間的小任務:").append(quick.joinToString("、") { it.title }).append('\n')
@@ -93,7 +93,7 @@ object Persona {
             "4. 開會、看診、聚餐這類有時段的事:使用者沒說結束時間就預設 end = start 加 1 小時,並在 say 裡提一下「先抓一小時」。" +
             "單純的提醒(帶文件、打電話)end 為 null。\n" +
             "5. repeat 只能是 \"\"、\"daily\"、\"weekdays\"、\"weekly\"、\"monthly\";leadMin 是提前幾分鐘響鈴,準時就是 0。\n" +
-            "6. ring 預設 true,只有使用者明說不用響才設 false。\n" +
+            "6. ring 預設 true;使用者說「不用提醒」「只是記錄」「只想知道有這件事」時 ring 設 false(照樣要有 start),並且不要再問重複或提前。\n" +
             "7. 時間已經過了不要建立,改為反問。\n" +
             "8. 新提醒和既有行程時間重疊時,在 say 裡簡短提醒並問要不要調整,但仍然建立。\n" +
             "9. 只是問答(例如今天有什麼事、哪個時段有空)時,reminders 為空陣列、ask 為 false,根據上面的行程回答。\n" +
@@ -143,7 +143,7 @@ object AiAssistant {
                 val location = o.optString("location", "").trim()
                 var repeat = o.optString("repeat", "")
                 if (repeat !in setOf("daily", "weekdays", "weekly", "monthly")) repeat = ""
-                val lead = o.optInt("leadMin", 0).coerceIn(0, 10_080)
+                val lead = if (o.optBoolean("ring", true)) o.optInt("leadMin", 0).coerceIn(0, 10_080) else 0
                 val ring = o.optBoolean("ring", true)
 
                 var start = parseLocal(o.optString("start", ""))
@@ -166,7 +166,8 @@ object AiAssistant {
                     endMs = end.atZone(zone).toInstant().toEpochMilli()
                 }
                 val startMs = start.atZone(zone).toInstant().toEpochMilli()
-                val ringOn = ring || repeat.isNotEmpty()
+                val ringOn = ring
+                if (!ring) repeat = ""
                 val ringAt = if (lead > 0 && startMs - lead * 60_000L > nowMs) startMs - lead * 60_000L else startMs
                 created += Reminder(
                     id = Assistant.newId(),
@@ -175,6 +176,7 @@ object AiAssistant {
                     triggerAt = if (ringOn) ringAt else null,
                     startAt = startMs,
                     endAt = endMs,
+                    timed = !ringOn,
                     repeat = repeat,
                     leadMin = lead,
                 )

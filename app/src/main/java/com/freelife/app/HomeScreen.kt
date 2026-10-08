@@ -205,23 +205,19 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             if (exactAlarmMissing) {
-                PermissionCard("需要允許「鬧鐘與提醒」,才能在準確的時間響鈴", "前往設定", onGrantExactAlarm)
+                PermissionCard("需要允許「鬧鐘與提醒」才能準時響", "設定", onGrantExactAlarm)
             }
             if (notifMissing) {
-                PermissionCard("需要允許通知,鬧鐘才會響", "允許通知", onGrantNotif)
+                PermissionCard("需要允許通知", "允許", onGrantNotif)
             }
             if (fullScreenMissing) {
-                PermissionCard("需要允許「全螢幕通知」,鎖屏時才會跳出鬧鐘畫面", "前往設定", onGrantFullScreen)
+                PermissionCard("需要允許「全螢幕通知」,鎖屏才會跳出鬧鐘", "設定", onGrantFullScreen)
             }
             if (overlayMissing) {
-                PermissionCard(
-                    "建議允許「顯示在其他應用程式上層」,用手機時鬧鐘橫幅才會一直停在畫面上方",
-                    "前往設定",
-                    onGrantOverlay,
-                )
+                PermissionCard("建議允許「顯示在其他應用程式上層」,用手機時鬧鐘才會有橫幅", "設定", onGrantOverlay)
             }
             if (silenced) {
-                PermissionCard("手機目前是勿擾的「完全靜音」,鬧鐘也不會響。請改成「僅限鬧鐘」或關閉", "前往設定", onOpenSound)
+                PermissionCard("勿擾是「完全靜音」,鬧鐘不會響。請改成「僅限鬧鐘」", "設定", onOpenSound)
             }
             if (crashText != null) {
                 Card(
@@ -232,7 +228,7 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "上次出了問題(請按「複製」貼給我)",
+                            text = "上次出了問題",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
@@ -259,7 +255,7 @@ fun HomeScreen(
                 MODE_WEEK -> {
                     val open = occs.count { !it.r.done }
                     Text(
-                        text = "這週共 ${occs.size} 件,還有 $open 件沒完成。點某一天可以看時間軸。",
+                        text = "共 ${occs.size} 件,$open 件未完成",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp),
@@ -302,9 +298,7 @@ fun HomeScreen(
                 }
             }
 
-            TextButton(onClick = onTestAlarm, modifier = Modifier.padding(top = 8.dp)) {
-                Text("測試鬧鐘(10 秒後響)")
-            }
+            ScheduleLegend()
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -385,7 +379,7 @@ private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime) {
 
     if (!isToday) {
         Text(
-            text = if (items.isEmpty()) "這天沒有排程" else "共 ${items.size} 件,${open} 件沒完成",
+            text = if (items.isEmpty()) "這天沒有行程" else "共 ${items.size} 件,$open 件未完成",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 8.dp),
@@ -439,7 +433,8 @@ private fun DaySummary(day: LocalDate, occs: List<Occ>, now: LocalDateTime) {
                     )
                 }
             }
-            val bits = mutableListOf("今天共 ${items.size} 件,${open} 件沒完成")
+            Box(modifier = Modifier.padding(top = 10.dp)) { WeekTrack(items, now, 12.dp) }
+            val bits = mutableListOf("今天 ${items.size} 件,$open 件未完成")
             if (late > 0) bits += "$late 件已過時"
             Text(
                 bits.joinToString(" · "),
@@ -476,12 +471,15 @@ private fun AgendaRow(o: Occ, now: LocalDateTime, onClick: (Reminder) -> Unit) {
                 .background(if (o.end == null) scheme.tertiary else scheme.primary),
         )
         Column(modifier = Modifier.padding(start = 10.dp)) {
-            Text(
-                text = r.title,
-                style = MaterialTheme.typography.bodyLarge,
-                textDecoration = if (r.done) TextDecoration.LineThrough else null,
-                color = if (r.done) scheme.outline else scheme.onSurface,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (r.ringless) AppIcon(Glyph.BELL_OFF, scheme.onSurfaceVariant, 14.dp, Modifier.padding(end = 4.dp))
+                Text(
+                    text = r.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textDecoration = if (r.done) TextDecoration.LineThrough else null,
+                    color = if (r.done) scheme.outline else scheme.onSurface,
+                )
+            }
             val late = !r.done && o.effectiveEnd.isBefore(now) && r.repeat.isEmpty()
             Text(
                 text = time + (if (r.repeat.isEmpty()) "" else " · ${Repeat.label(r.repeat)}") +
@@ -636,7 +634,7 @@ private fun QuickTaskSheet(
             )
             if (quick.isEmpty()) {
                 Text(
-                    text = "目前沒有小任務。到「助理」說一聲,例如「買牛奶」。",
+                    text = "目前沒有小任務",
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 12.dp),

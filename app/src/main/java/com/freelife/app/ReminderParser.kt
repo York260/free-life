@@ -32,6 +32,7 @@ data class Draft(
     val leadMin: Int = 0,
     val askedRepeat: Boolean = false,
     val askedLead: Boolean = false,
+    val noRing: Boolean = false,
 )
 
 /** 不需要網路、不需要 AI 的中文日期時間解析(第一版)。 */
@@ -68,6 +69,7 @@ object ReminderParser {
     )
     private val END_SEP_RE = Regex("\\s*(?:到|至|~|～|\\-|－|—|–)\\s*")
     private val DUR_RE = Regex("(一個半|半|\\d+|[一二兩三四五六七八九十]+)\\s*(?:個)?\\s*(小時|鐘頭|分鐘|分)")
+    val NO_RING_RE = Regex("(?:不用|不要|不必|不需要|別)(?:提醒|響鈴|響|鬧|通知)|不提醒|只(?:是)?(?:要)?(?:記錄|記一下|記下)|僅記錄|純記錄|只想知道")
     private val FILLER_RE = Regex("提醒我|提醒|叫我|記得|幫我|請你|麻煩你|麻煩")
     private val PLACE_HINT_RE = Regex(
         "看診|看醫|牙醫|醫院|診所|門診|開會|會議|面試|約會|約診|相約|聚餐|聚會|吃飯|餐督|勤務|訓練|上課|出差|拜訪|報到|檢查|演講|考試"
@@ -218,6 +220,14 @@ object ReminderParser {
         if (locMatch != null) {
             location = locMatch.groupValues[1]
             s = cut(s, locMatch.range)
+        }
+
+        // 只記錄不提醒:「不用提醒」「只是記錄」
+        var noRing = false
+        val nr = NO_RING_RE.find(s)
+        if (nr != null) {
+            noRing = true
+            s = cut(s, nr.range)
         }
 
         // 重複:每天、平日、每週三、每月15號
@@ -434,6 +444,7 @@ object ReminderParser {
             relative = relative,
             repeat = repeat,
             leadMin = leadMin,
+            noRing = noRing,
         )
     }
 }

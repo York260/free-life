@@ -249,7 +249,7 @@ fun BriefingScreen(
 
 /** 設定:每日確認時間、Claude API 金鑰(選填)。 */
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onTestAlarm: () -> Unit = {}) {
     val ctx = LocalContext.current
     var enabled by remember { mutableStateOf(AppSettings.briefingEnabled(ctx)) }
     var minutes by remember { mutableStateOf(AppSettings.briefingMinutes(ctx)) }
@@ -261,6 +261,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     var conflictAsk by remember { mutableStateOf(AppSettings.conflictAsk(ctx)) }
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
+    var voiceReplyOn by remember { mutableStateOf(AppSettings.voiceReply(ctx)) }
+    var thriftOn by remember { mutableStateOf(AppSettings.thrift(ctx)) }
     var soundName by remember { mutableStateOf(AlarmSound.title(ctx)) }
     var openToVoice by remember { mutableStateOf(AppSettings.openToVoice(ctx)) }
     var soundKey by remember { mutableStateOf(AppSettings.alarmSound(ctx)) }
@@ -293,7 +295,6 @@ fun SettingsScreen(onBack: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(text = "設定", style = MaterialTheme.typography.headlineMedium)
-            TextButton(onClick = onBack) { Text("返回") }
         }
 
         Column(
@@ -313,7 +314,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("每天早上提醒我確認行程")
+                Text("每天早上確認行程")
                 Switch(
                     checked = enabled,
                     onCheckedChange = {
@@ -338,7 +339,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     ).show()
                 },
             ) {
-                Text("提醒時間:%02d:%02d(點此修改)".format(minutes / 60, minutes % 60))
+                Text("時間 %02d:%02d".format(minutes / 60, minutes % 60))
             }
 
             Text(
@@ -353,7 +354,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "從桌面圖示打開 App 時,直接開始聽",
+                    text = "點桌面圖示時直接開始聽",
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
                 Switch(checked = openToVoice, onCheckedChange = {
@@ -362,8 +363,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 })
             }
             Text(
-                text = "側邊鍵雙擊:到手機「設定 → 進階功能 → 側邊按鈕 → 按兩下 → 開啟應用程式」,選「Free Life 語音」(麥克風圖示)。" +
-                    "也可以長按 Free Life 圖示選「語音記事」、在桌面加「Free Life」小工具,或在快速設定面板編輯、加入「語音記事」磁貼。",
+                text = "側邊鍵雙擊:手機「設定 → 進階功能 → 側邊按鈕 → 按兩下 → 開啟應用程式」,選「Free Life 語音」。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
@@ -426,7 +426,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 }) { Text("恢復預設") }
             }
             Text(
-                text = "音量 ${volume.toInt()}%(再乘上手機的鬧鐘音量)",
+                text = "音量 ${volume.toInt()}%",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -442,7 +442,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "漸強:20 秒內從小聲慢慢變大",
+                    text = "漸強(從小聲慢慢變大)",
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
                 Switch(checked = fade, onCheckedChange = {
@@ -463,7 +463,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "開會中先靜音問我;開會前 10 分鐘先警告會被靜音的提醒",
+                    text = "排程進行中先靜音問我",
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
                 Switch(
@@ -475,13 +475,43 @@ fun SettingsScreen(onBack: () -> Unit) {
                 )
             }
             Text(
-                text = "提醒響起時如果別的排程正在進行,只會震動一下並顯示橫幅,可選「會後再提醒」「照常響」「關閉」。" +
-                    "3 分鐘沒處理就改成正常響鈴,不會漏掉。排程開始前 10 分鐘,若期間有提醒會響,會先通知你。" +
-                    "長度超過 8 小時的排程(例如出差)不算開會。",
+                text = "提醒響起時若有排程進行中,會先靜音問你;3 分鐘沒處理就照常響。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
+
+            Text(
+                text = "助理",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("朗讀助理的回覆")
+                Switch(checked = voiceReplyOn, onCheckedChange = {
+                    voiceReplyOn = it
+                    AppSettings.setVoiceReply(ctx, it)
+                })
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "省錢模式(簡單句子不用 AI)",
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
+                Switch(checked = thriftOn, onCheckedChange = {
+                    thriftOn = it
+                    AppSettings.setThrift(ctx, it)
+                })
+            }
 
             Text(
                 text = "助理個性",
@@ -514,7 +544,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     .padding(top = 8.dp),
             )
             Text(
-                text = "語氣(需要接 AI 才會完整呈現)",
+                text = "語氣",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
@@ -533,14 +563,13 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             Text(
-                text = "AI 助理(選填)",
+                text = "AI(選填)",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 24.dp),
             )
             Text(
-                text = "不填也能用,會使用內建規則。填入 Claude API 金鑰後,助理才能聽懂整句話、把一句話拆成多筆提醒、" +
-                    "缺資訊時反問,並用你設定的個性說話。使用 AI 時,你的行程標題與時間會送到 Anthropic 的伺服器。Claude API 依用量計費,與 Claude Pro 訂閱分開。金鑰只存在這支手機裡。",
+                text = "不填也能用內建規則。填入金鑰後,助理能聽懂整句話。啟用後行程標題與時間會送到 Anthropic,依用量另外計費。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 8.dp),
@@ -588,6 +617,9 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp),
             ) {
                 Text("測試金鑰")
+            }
+            TextButton(onClick = onTestAlarm, modifier = Modifier.padding(top = 8.dp)) {
+                Text("測試鬧鐘(10 秒後響)")
             }
             val result = testResult
             if (result != null) {

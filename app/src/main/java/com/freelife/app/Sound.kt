@@ -12,10 +12,10 @@ import android.os.Looper
 object AlarmSound {
     /** 內建的賈維斯風格鈴聲(原創合成):代號、名稱、說明。 */
     val BUILTIN = listOf(
-        Triple("jarvis_boot", "系統啟動", "往上的琶音加光暈和弦,像 HUD 開機,很有賈維斯的感覺"),
-        Triple("jarvis_scan", "HUD 掃描", "掃頻、數位點擊聲,最後兩聲清亮的確認音"),
-        Triple("jarvis_reactor", "反應爐警示", "低頻脈動加雙音警報,最有喚醒力,適合很難起床的時候"),
-        Triple("jarvis_chime", "輕柔通知", "兩個上行的鐘聲,溫和,適合一般提醒"),
+        Triple("jarvis_boot", "系統啟動", "HUD 開機,上行琶音"),
+        Triple("jarvis_scan", "HUD 掃描", "掃頻加數位確認音"),
+        Triple("jarvis_reactor", "反應爐警示", "低頻脈動加警報,最有喚醒力"),
+        Triple("jarvis_chime", "輕柔通知", "兩聲鐘響,溫和"),
     )
 
     private const val PREFIX = "builtin:"

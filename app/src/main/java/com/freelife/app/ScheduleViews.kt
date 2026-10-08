@@ -218,6 +218,7 @@ private fun EventBlock(
     val r = o.r
     val point = o.end == null
     val scheme = MaterialTheme.colorScheme
+    val info = r.ringless
     val container = if (point) scheme.tertiaryContainer else scheme.primaryContainer
     val content = if (point) scheme.onTertiaryContainer else scheme.onPrimaryContainer
     val accent = if (point) scheme.tertiary else scheme.primary
@@ -237,8 +238,12 @@ private fun EventBlock(
 
     var m = modifier
         .clip(shape)
-        .background(container.copy(alpha = if (r.done) 0.45f else 1f))
-    if (clash || overdue) m = m.border(1.5.dp, scheme.error, shape)
+        .background(container.copy(alpha = if (r.done) 0.45f else if (info) 0.5f else 1f))
+    if (clash || overdue) {
+        m = m.border(1.5.dp, scheme.error, shape)
+    } else if (info && !r.done) {
+        m = m.border(1.dp, accent.copy(alpha = 0.7f), shape)
+    }
     Row(modifier = m.clickable { onClick() }) {
         Box(
             modifier = Modifier
@@ -257,6 +262,9 @@ private fun EventBlock(
                     }
                     if (r.repeat.isNotEmpty()) {
                         AppIcon(Glyph.REPEAT, content, 14.dp, Modifier.padding(end = 4.dp))
+                    }
+                    if (info) {
+                        AppIcon(Glyph.BELL_OFF, content.copy(alpha = 0.8f), 14.dp, Modifier.padding(end = 4.dp))
                     }
                     Text(
                         text = title,
@@ -356,14 +364,14 @@ fun WeekView(
 }
 
 @Composable
-private fun WeekTrack(items: List<Occ>, now: LocalDateTime?) {
+fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui.unit.Dp = 20.dp) {
     val scheme = MaterialTheme.colorScheme
     val from = 7 * 60
     val span = 15 * 60f
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(20.dp)
+            .height(height)
             .clip(RoundedCornerShape(6.dp))
             .background(scheme.surfaceVariant),
     ) {
@@ -399,7 +407,7 @@ private fun WeekTrack(items: List<Occ>, now: LocalDateTime?) {
                     .width(w)
                     .height(14.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(color.copy(alpha = 0.85f)),
+                    .background(color.copy(alpha = if (o.r.ringless) 0.45f else 0.9f)),
             )
         }
         if (now != null) {
@@ -509,5 +517,40 @@ fun MonthView(
                 }
             }
         }
+    }
+}
+
+/** 顏色說明:青色=排程、琥珀=小任務/提醒、虛線框加鈴鐺斜線=只記錄不響鈴。 */
+@Composable
+fun ScheduleLegend() {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.padding(top = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        @Composable
+        fun item(color: androidx.compose.ui.graphics.Color, text: String, hollow: Boolean = false) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .width(14.dp)
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(color.copy(alpha = if (hollow) 0.3f else 0.9f))
+                        .then(if (hollow) Modifier.border(1.dp, color, RoundedCornerShape(3.dp)) else Modifier),
+                )
+                if (hollow) AppIcon(Glyph.BELL_OFF, scheme.onSurfaceVariant, 12.dp, Modifier.padding(start = 4.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
+        item(scheme.primary, "排程")
+        item(scheme.tertiary, "有時間的小任務")
+        item(scheme.primary, "只記錄", hollow = true)
     }
 }

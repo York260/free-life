@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-enum class Glyph { CALENDAR, MIC, SLIDERS, SUN, CHECKLIST, REPEAT, SPEAKER, WARNING, CHECK }
+enum class Glyph { CALENDAR, MIC, SLIDERS, SUN, CHECKLIST, REPEAT, SPEAKER, WARNING, CHECK, BELL_OFF }
 
 /** 自己畫的線條圖示(圓角、統一線寬),不依賴任何圖示庫。 */
 @Composable
@@ -120,6 +120,18 @@ fun AppIcon(glyph: Glyph, color: Color, size: Dp = 22.dp, modifier: Modifier = M
                 drawPath(t, color, style = st)
                 line(12f, 10f, 12f, 14f)
                 drawCircle(color, 1.1f * u, p(12f, 16.8f))
+            }
+
+            Glyph.BELL_OFF -> {
+                val bell = Path().apply {
+                    moveTo(5f * u, 17f * u); lineTo(7f * u, 17f * u); lineTo(7f * u, 11f * u)
+                    cubicTo(7f * u, 8f * u, 9f * u, 6f * u, 12f * u, 6f * u)
+                    cubicTo(15f * u, 6f * u, 17f * u, 8f * u, 17f * u, 11f * u)
+                    lineTo(17f * u, 17f * u); lineTo(19f * u, 17f * u)
+                }
+                drawPath(bell, color, style = st)
+                line(10f, 20f, 14f, 20f)
+                line(4f, 4f, 20f, 20f)
             }
 
             Glyph.CHECK -> {

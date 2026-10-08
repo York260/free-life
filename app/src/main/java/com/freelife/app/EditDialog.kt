@@ -91,7 +91,7 @@ fun EditReminderDialog(
             (r.endAt?.let { toLocal(it) } ?: toLocal(r.start).plusHours(1)).withSecond(0).withNano(0),
         )
     }
-    var ring by remember(r.id) { mutableStateOf(r.triggerAt != null || r.endAt != null) }
+    var ring by remember(r.id) { mutableStateOf(r.triggerAt != null) }
     var repeat by remember(r.id) { mutableStateOf(r.repeat) }
     var lead by remember(r.id) { mutableStateOf(r.leadMin) }
     var error by remember(r.id) { mutableStateOf<String?>(null) }
@@ -194,25 +194,27 @@ fun EditReminderDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("開始時響鈴")
+                    Text(if (ring) "響鈴提醒" else "只記錄,不提醒")
                     Switch(checked = ring, onCheckedChange = { ring = it })
                 }
 
-                Text(
-                    text = "重複",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                ChoiceRow(Repeat.OPTIONS, repeat) { repeat = it }
+                if (ring) {
+                    Text(
+                        text = "重複",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    ChoiceRow(Repeat.OPTIONS, repeat) { repeat = it }
 
-                Text(
-                    text = "提前響鈴",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                ChoiceRow(LEAD_OPTIONS, lead) { lead = it }
+                    Text(
+                        text = "提前響鈴",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    ChoiceRow(LEAD_OPTIONS, lead) { lead = it }
+                }
 
                 if (onDelete != null || onToggleDone != null) {
                     Row(
@@ -256,7 +258,11 @@ fun EditReminderDialog(
                 val t = title.trim()
                 val startMs = toMillis(start)
                 val endMs = if (hasEnd) toMillis(end) else null
-                val ringOn = ring || repeat.isNotEmpty()
+                val ringOn = ring
+                if (!ring) {
+                    repeat = ""
+                    lead = 0
+                }
                 val leadMs = lead * 60_000L
                 val ringAt = if (lead > 0 && startMs - leadMs > System.currentTimeMillis()) startMs - leadMs else startMs
                 when {
@@ -264,7 +270,7 @@ fun EditReminderDialog(
                     endMs != null && endMs <= startMs -> error = "結束時間要晚於開始時間"
                     ringOn && !r.done && startMs <= System.currentTimeMillis() &&
                         (startMs != r.start || r.triggerAt == null) ->
-                        error = "開始時間已經過了,不能響鈴。請改時間,或關掉「開始時響鈴」"
+                        error = "開始時間已經過了,不能響鈴。請改時間,或改成「只記錄」"
                     else -> onSave(
                         r.copy(
                             title = t,
@@ -272,6 +278,8 @@ fun EditReminderDialog(
                             startAt = startMs,
                             endAt = endMs,
                             triggerAt = if (ringOn) ringAt else null,
+                            // 不響鈴但有指定時間(或原本就有時間):照樣顯示在行程圖上
+                            timed = !ringOn && (r.timed || r.triggerAt != null || r.endAt != null || startMs != r.start),
                             repeat = repeat,
                             leadMin = lead,
                         ),

@@ -21,7 +21,7 @@ object ScheduleModel {
         LocalDateTime.ofInstant(Instant.ofEpochMilli(ms), ZoneId.systemDefault())
 
     /** 有時間的提醒才會出現在行程圖上(沒有時間的小任務另外列)。 */
-    fun isTimed(r: Reminder): Boolean = r.triggerAt != null || r.endAt != null
+    fun isTimed(r: Reminder): Boolean = r.hasTime
 
     /** 在 [from, toExclusive) 這段日期內的所有出現,重複項目會往後展開。 */
     fun occurrences(all: List<Reminder>, from: LocalDate, toExclusive: LocalDate): List<Occ> {

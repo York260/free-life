@@ -27,7 +27,7 @@ object Assistant {
     private val SKIP_WORDS = setOf("略過", "跳過", "不用", "沒有", "無", "不必", "skip")
     private val START_CHIPS = listOf("現在", "1小時後", "今天晚上7點", "明天早上8點", "略過")
     private val REPEAT_CHIPS = listOf("不重複", "每天", "平日", "每週", "每月")
-    private val LEAD_CHIPS = listOf("準時", "提前10分鐘", "提前30分鐘", "提前1小時", "提前1天")
+    private val LEAD_CHIPS = listOf("準時響鈴", "提前10分鐘", "提前30分鐘", "提前1小時", "提前1天", "不提醒")
     private val NO_WORDS = Regex("^(不用|不要|不必|不|沒有|無|略過|跳過|否|no)")
     private val DAY_LEAD_RE = Regex("(\\d+|[一二兩三])\\s*天")
     private val END_CHIPS = listOf("30分鐘", "1小時", "2小時", "沒有結束時間")
@@ -173,13 +173,16 @@ object Assistant {
                     else -> null
                 }
                 if (code == null) {
-                    Outcome.Ask(draft, Kind.REPEAT, "我沒聽懂,請說「每天」「平日」「每週」「每月」,或按「不重複」", REPEAT_CHIPS)
+                    Outcome.Ask(draft, Kind.REPEAT, "沒聽懂。請說「每天」「平日」「每週」「每月」,或按「不重複」", REPEAT_CHIPS)
                 } else {
                     advance(draft.copy(repeat = code, askedRepeat = true), now)
                 }
             }
 
             Kind.LEAD -> {
+                if (ReminderParser.NO_RING_RE.containsMatchIn(t) || t == "不提醒") {
+                    return advance(draft.copy(noRing = true, askedLead = true, askedRepeat = true), now)
+                }
                 val dayM = DAY_LEAD_RE.find(t)
                 val mins: Int? = when {
                     t.contains("準時") || NO_WORDS.containsMatchIn(t) -> 0
@@ -187,7 +190,7 @@ object Assistant {
                     else -> ReminderParser.parseDuration(t)
                 }
                 if (mins == null) {
-                    Outcome.Ask(draft, Kind.LEAD, "我沒聽懂,請說「10分鐘」「1小時」「1天」,或按「準時」", LEAD_CHIPS)
+                    Outcome.Ask(draft, Kind.LEAD, "沒聽懂。請說「10分鐘」「1小時」「1天」,或按「準時響鈴」「不提醒」", LEAD_CHIPS)
                 } else {
                     advance(draft.copy(leadMin = mins, askedLead = true), now)
                 }
@@ -301,11 +304,11 @@ object Assistant {
 
         // 主動問:要不要重複、要不要提前提醒(「10分鐘後」這種臨時的不用問)
         if (!d.relative) {
-            if (!d.askedRepeat && d.repeat.isEmpty()) {
-                return Outcome.Ask(d, Kind.REPEAT, "「${d.title}」要重複嗎?", REPEAT_CHIPS)
+            if (!d.askedLead && d.leadMin == 0 && !d.noRing) {
+                return Outcome.Ask(d, Kind.LEAD, "「${d.title}」要怎麼提醒?", LEAD_CHIPS)
             }
-            if (!d.askedLead && d.leadMin == 0) {
-                return Outcome.Ask(d, Kind.LEAD, "要提前提醒嗎?", LEAD_CHIPS)
+            if (!d.askedRepeat && d.repeat.isEmpty() && !d.noRing) {
+                return Outcome.Ask(d, Kind.REPEAT, "要重複嗎?", REPEAT_CHIPS)
             }
         }
 
@@ -314,7 +317,12 @@ object Assistant {
         // 提前提醒:響鈴時間 = 開始 - 提前分鐘;如果提前的時間點已經過了,就改成開始時響
         val leadOk = d.leadMin > 0 && startMs - d.leadMin * 60_000L > nowMs
         val ringMs = if (leadOk) startMs - d.leadMin * 60_000L else startMs
-        val ringText = if (leadOk) "開始前 ${leadLabel(d.leadMin)}響鈴" else "開始時響鈴"
+        val ringText = when {
+            d.noRing -> "只記錄,不提醒"
+            leadOk -> "開始前 ${leadLabel(d.leadMin)}響鈴"
+            else -> "開始時響鈴"
+        }
+        val trig: Long? = if (d.noRing) null else ringMs
         val rep = Repeat.label(d.repeat)
         val repText = if (rep.isEmpty()) "" else "(重複:$rep)"
         val where = if (d.location.isBlank()) "" else " @${d.location}"
@@ -322,15 +330,17 @@ object Assistant {
             val endMs = end.atZone(zone).toInstant().toEpochMilli()
             val r = Reminder(
                 id = newId(), title = d.title, location = d.location,
-                triggerAt = ringMs, startAt = startMs, endAt = endMs,
-                repeat = d.repeat, leadMin = d.leadMin,
+                triggerAt = trig, startAt = startMs, endAt = endMs,
+                repeat = if (d.noRing) "" else d.repeat, leadMin = if (d.noRing) 0 else d.leadMin,
+                timed = d.noRing,
             )
             return Outcome.Done(r, "已設定排程$repText:${formatRange(startMs, endMs)} ${d.title}$where($ringText)")
         }
         val r = Reminder(
             id = newId(), title = d.title, location = d.location,
-            triggerAt = ringMs, startAt = startMs,
-            repeat = d.repeat, leadMin = d.leadMin,
+            triggerAt = trig, startAt = startMs,
+            repeat = if (d.noRing) "" else d.repeat, leadMin = if (d.noRing) 0 else d.leadMin,
+            timed = d.noRing,
         )
         return Outcome.Done(r, "已記下小任務$repText:${formatTrigger(startMs)} ${d.title}$where($ringText)")
     }

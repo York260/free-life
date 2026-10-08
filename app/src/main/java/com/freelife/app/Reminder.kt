@@ -27,10 +27,18 @@ data class Reminder(
     val repeat: String = "",
     /** 提前幾分鐘響鈴;0 代表開始時才響。 */
     val leadMin: Int = 0,
+    /** 使用者指定了時間、但不響鈴(只想記錄):仍然要出現在行程圖上。 */
+    val timed: Boolean = false,
 ) {
     /** 開始時間;舊資料沒有存開始時間,就用響鈴時間或建立時間。 */
     val start: Long get() = if (startAt > 0L) startAt else (triggerAt ?: id)
     val isScheduled: Boolean get() = endAt != null
+
+    /** 有時間(響鈴、有結束時間、或只記錄的時間),會出現在行程圖上。 */
+    val hasTime: Boolean get() = triggerAt != null || endAt != null || timed
+
+    /** 不響鈴、只記錄。 */
+    val ringless: Boolean get() = triggerAt == null
 }
 
 private val timeFormatter: DateTimeFormatter =
@@ -83,6 +91,7 @@ object ReminderStore {
                     endAt = if (o.has("endAt") && !o.isNull("endAt")) o.getLong("endAt") else null,
                     repeat = o.optString("repeat", ""),
                     leadMin = o.optInt("leadMin", 0),
+                    timed = o.optBoolean("timed", false),
                 )
             }
         } catch (e: Exception) {
@@ -104,6 +113,7 @@ object ReminderStore {
             if (r.endAt != null) o.put("endAt", r.endAt)
             if (r.repeat.isNotEmpty()) o.put("repeat", r.repeat)
             if (r.leadMin > 0) o.put("leadMin", r.leadMin)
+            if (r.timed) o.put("timed", true)
             arr.put(o)
         }
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)

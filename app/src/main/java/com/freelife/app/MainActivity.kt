@@ -77,7 +77,7 @@ class MainActivity : ComponentActivity() {
     private var crashText by mutableStateOf<String?>(null)
     private var briefingRequested by mutableStateOf(false)
     private var voiceRequested by mutableStateOf(false)
-    private var voiceSignal by mutableStateOf(0)
+    private var voiceListen by mutableStateOf(false)
 
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(voiceRequested) {
                         if (voiceRequested) {
                             screen = Screen.ASSISTANT
-                            voiceSignal++
+                            voiceListen = true
                             voiceRequested = false
                         }
                     }
@@ -156,7 +156,8 @@ class MainActivity : ComponentActivity() {
                                 )
 
                                 Screen.ASSISTANT -> AssistantScreen(
-                                    listenSignal = voiceSignal,
+                                    listen = voiceListen,
+                                    onListenHandled = { voiceListen = false },
                                     reminders = reminders,
                                     onAdd = { addReminder(it) },
                                     onDelete = { deleteReminder(it) },
@@ -171,7 +172,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenSettings = { screen = Screen.SETTINGS },
                                 )
 
-                                Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME })
+                                Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HOME }, onTestAlarm = { testAlarm() })
                             }
                         }
                         if (showBar) BottomBar(screen) { screen = it }

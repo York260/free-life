@@ -67,7 +67,8 @@ data class ChatItem(
  */
 @Composable
 fun AssistantScreen(
-    listenSignal: Int = 0,
+    listen: Boolean = false,
+    onListenHandled: () -> Unit = {},
     reminders: List<Reminder>,
     onAdd: (Reminder) -> Unit,
     onDelete: (Reminder) -> Unit,
@@ -84,9 +85,8 @@ fun AssistantScreen(
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var pendingAsk by remember { mutableStateOf<Outcome.Ask?>(null) }
-    var voiceReply by remember { mutableStateOf(AppSettings.voiceReply(ctx)) }
-    var converse by remember { mutableStateOf(AppSettings.converse(ctx)) }
-    var thrift by remember { mutableStateOf(AppSettings.thrift(ctx)) }
+    val voiceReply = AppSettings.voiceReply(ctx)
+    val thrift = AppSettings.thrift(ctx)
     // AI 剛問了問題、正在等你回答時,下一句一定交給 AI
     var aiWaiting by remember { mutableStateOf(false) }
     // 語音辨識的其他候選,點一下可以換掉輸入框裡的字
@@ -105,14 +105,9 @@ fun AssistantScreen(
             val list = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS) ?: arrayListOf()
             val best = VoiceFix.best(list, LocalDateTime.now())
             if (best.isNotBlank()) {
-                if (converse) {
-                    // 連續對話是免手持模式,辨識完直接送出
-                    sendHolder[0]?.invoke(best)
-                } else {
-                    // 先留在輸入框,讓你確認或修改後再送出
-                    input = best
-                    alts = list.map { VoiceFix.clean(it) }.filter { it.isNotEmpty() && it != best }.distinct().take(4)
-                }
+                // 先留在輸入框,讓你確認或修改後再送出
+                input = best
+                alts = list.map { VoiceFix.clean(it) }.filter { it.isNotEmpty() && it != best }.distinct().take(4)
             }
         }
     }
@@ -138,12 +133,7 @@ fun AssistantScreen(
     /** 助理說一句話:顯示、(開啟時)朗讀,必要時朗讀完自動開麥克風等你回答。 */
     fun say(item: ChatItem, listenAfter: Boolean) {
         items.add(item)
-        val again = listenAfter && converse
-        if (voiceReply) {
-            speaker.speak(item.text) { if (again) startListening() }
-        } else if (again) {
-            startListening()
-        }
+        if (voiceReply) speaker.speak(item.text) {}
     }
 
     fun conflictNote(newOnes: List<Reminder>): String {
@@ -220,9 +210,12 @@ fun AssistantScreen(
     }
     sendHolder[0] = { send(it) }
 
-    // 從小工具、磁貼、捷徑進來:畫面一出來就開始聽
-    LaunchedEffect(listenSignal) {
-        if (listenSignal > 0) startListening()
+    // 只有從小工具、磁貼、捷徑進來那一次才自動開始聽
+    LaunchedEffect(listen) {
+        if (listen) {
+            onListenHandled()
+            startListening()
+        }
     }
 
     LaunchedEffect(items.size, busy) {
@@ -231,9 +224,9 @@ fun AssistantScreen(
     LaunchedEffect(Unit) {
         if (items.isEmpty()) {
             val hello = if (aiOn) {
-                "${name}待命中。想記什麼、想知道什麼,直接說。"
+                "${name}待命中。"
             } else {
-                "${name}待命中。目前沒有接 AI,我用內建規則聽得懂的說法來記。到設定填入金鑰,我就能聽懂整句話。"
+                "${name}待命中。目前用內建規則,例如「明天下午3點開會」。"
             }
             items.add(ChatItem(false, hello))
         }
@@ -255,36 +248,10 @@ fun AssistantScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(text = name, style = MaterialTheme.typography.headlineMedium)
-            Row {
-                TextButton(onClick = onOpenSettings) { Text("設定") }
-                TextButton(onClick = onBack) { Text("返回") }
+            if (!aiOn) {
+                Text("內建規則", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("朗讀回覆", style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = voiceReply, onCheckedChange = {
-                voiceReply = it
-                AppSettings.setVoiceReply(ctx, it)
-                if (!it) speaker.stop()
-            })
-            Text("省錢模式", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
-            Switch(checked = thrift, onCheckedChange = {
-                thrift = it
-                AppSettings.setThrift(ctx, it)
-            })
-            Text("連續對話", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
-            Switch(checked = converse, onCheckedChange = {
-                converse = it
-                AppSettings.setConverse(ctx, it)
-            })
-        }
-
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -337,7 +304,7 @@ fun AssistantScreen(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("例如:下週三下午提醒我帶文件,前一天晚上也提醒一次") },
+                placeholder = { Text("例如:明天下午3點開會") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { send(input) }),
                 maxLines = 3,
@@ -380,7 +347,7 @@ private fun Bubble(
                     item.created.forEach { r ->
                         val span = when {
                             r.endAt != null -> formatRange(r.start, r.endAt)
-                            r.triggerAt != null -> formatTrigger(r.start)
+                            r.triggerAt != null || r.timed -> formatTrigger(r.start)
                             else -> "小任務"
                         }
                         val rep = if (r.repeat.isEmpty()) "" else " ・${Repeat.label(r.repeat)}"
