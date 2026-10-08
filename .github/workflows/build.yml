@@ -35,11 +35,28 @@ jobs:
       - name: Publish APK to the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
+          TITLE: "最新版 (build ${{ github.run_number }})"
+          NOTES: "自動編譯,commit ${{ github.sha }}"
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk FreeLife.apk
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest FreeLife.apk \
-            --target "${{ github.sha }}" \
-            --prerelease \
-            --title "最新版 (build ${{ github.run_number }})" \
-            --notes "自動編譯,commit ${{ github.sha }}"
+          # 清掉之前卡住的草稿(GitHub 偶爾會把發佈變成 untagged 草稿)
+          for id in $(gh api repos/${{ github.repository }}/releases -q '.[] | select(.draft) | .id'); do
+            gh api -X DELETE repos/${{ github.repository }}/releases/$id || true
+          done
+          # 把 latest 標籤移到這次的 commit(不刪掉發佈,避免變成草稿)
+          git tag -f latest "${{ github.sha }}"
+          git push -f origin refs/tags/latest
+          if gh api repos/${{ github.repository }}/releases/tags/latest > /dev/null 2>&1; then
+            gh release upload latest FreeLife.apk --clobber
+            gh release edit latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false
+          else
+            gh release create latest FreeLife.apk --target "${{ github.sha }}" --prerelease --title "$TITLE" --notes "$NOTES"
+          fi
+          # 最後確認真的公開了
+          for i in 1 2 3 4 5; do
+            d=$(gh api repos/${{ github.repository }}/releases/tags/latest -q .draft 2>/dev/null || echo missing)
+            [ "$d" = "false" ] && { echo "published"; exit 0; }
+            sleep 5
+            gh release edit latest --draft=false || true
+          done
+          echo "release still not published" && exit 1
