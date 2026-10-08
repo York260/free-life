@@ -43,6 +43,20 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- 第二個啟動圖示:從這個進來會直接開始聽。可設給三星側邊鍵雙擊 -->
+        <activity-alias
+            android:name=".VoiceLauncher"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_mic_cyan"
+            android:label="@string/voice_label"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <receiver
             android:name=".VoiceWidget"
             android:exported="true">

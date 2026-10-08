@@ -362,7 +362,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 })
             }
             Text(
-                text = "側邊鍵雙擊:先打開上面的開關,再到手機「設定 → 進階功能 → 側邊按鈕 → 按兩下 → 開啟應用程式」選 Free Life。" +
+                text = "側邊鍵雙擊:到手機「設定 → 進階功能 → 側邊按鈕 → 按兩下 → 開啟應用程式」,選「Free Life 語音」(麥克風圖示)。" +
                     "也可以長按 Free Life 圖示選「語音記事」、在桌面加「Free Life」小工具,或在快速設定面板編輯、加入「語音記事」磁貼。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
