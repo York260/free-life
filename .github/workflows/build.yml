@@ -34,6 +34,14 @@ jobs:
             exit 1
           fi
 
+      - name: Build variant B (no QUERY_ALL_PACKAGES)
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk full.apk
+          sed -i '/QUERY_ALL_PACKAGES/d' app/src/main/AndroidManifest.xml
+          gradle assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk varB.apk
+          cp full.apk app/build/outputs/apk/debug/app-debug.apk
+
       - name: Keep APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -50,6 +58,8 @@ jobs:
           # 每一版用不同檔名,避免手機瀏覽器拿到舊的(已失效的)下載轉址
           APK="FreeLife-${{ github.run_number }}.apk"
           cp FreeLife.apk "$APK"
+          APKB="FreeLife-${{ github.run_number }}-B.apk"
+          cp varB.apk "$APKB"
           # 清掉之前卡住的草稿(GitHub 偶爾會把發佈變成 untagged 草稿)
           for id in $(gh api repos/${{ github.repository }}/releases -q '.[] | select(.draft) | .id'); do
             gh api -X DELETE repos/${{ github.repository }}/releases/$id || true
@@ -62,10 +72,10 @@ jobs:
             for a in $(gh api repos/${{ github.repository }}/releases/tags/latest -q '.assets[].id'); do
               gh api -X DELETE repos/${{ github.repository }}/releases/assets/$a || true
             done
-            gh release upload latest "$APK" --clobber
+            gh release upload latest "$APK" "$APKB" --clobber
             gh release edit latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false
           else
-            gh release create latest "$APK" --target "${{ github.sha }}" --prerelease --title "$TITLE" --notes "$NOTES"
+            gh release create latest "$APK" "$APKB" --target "${{ github.sha }}" --prerelease --title "$TITLE" --notes "$NOTES"
           fi
           # 最後確認真的公開了
           for i in 1 2 3 4 5; do
