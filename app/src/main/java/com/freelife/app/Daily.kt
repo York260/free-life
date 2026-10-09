@@ -139,9 +139,9 @@ object DailyJobs {
     const val EXTRA_ID = "id"
     const val EXTRA_OPEN_REVIEW = "open_review"
 
-    private const val CH_NIGHT = "night_v1"
-    private const val CH_EVENING = "evening_v1"
-    private const val CH_WEEKLY = "weekly_v1"
+    private const val CH_NIGHT = "night_v2"
+    private const val CH_EVENING = "evening_v2"
+    private const val CH_WEEKLY = "weekly_v2"
     private const val ID_NIGHT = 7201
     private const val ID_WEEKLY = 7202
 
@@ -187,7 +187,7 @@ object DailyJobs {
     private fun channel(ctx: Context, id: String, name: String) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(id) == null) {
-            nm.createNotificationChannel(NotificationChannel(id, name, NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH))
         }
     }
 
@@ -220,7 +220,7 @@ object DailyJobs {
 
     private fun itemCode(id: Long, slot: Int) = 80_000 + ((id % 5_000).toInt() * 4) + slot
 
-    fun showEvening(ctx: Context) {
+    fun showEvening(ctx: Context): Int {
         channel(ctx, CH_EVENING, "追問過時沒完成的事")
         val now = System.currentTimeMillis()
         val items = ReminderOps.overdue(ReminderStore.load(ctx), now).takeLast(4)
@@ -244,6 +244,7 @@ object DailyJobs {
                 .build()
             nm(ctx).notify(itemCode(r.id, 0), n)
         }
+        return items.size
     }
 
     fun showWeekly(ctx: Context) {

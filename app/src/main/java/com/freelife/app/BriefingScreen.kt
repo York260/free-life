@@ -424,6 +424,22 @@ fun SettingsScreen(
                 resched()
             })
 
+            Text("沒收到通知?按下面試看看:", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                fun check(): Boolean {
+                    val ok = androidx.core.app.NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+                    if (!ok) android.widget.Toast.makeText(ctx, "手機把這個 App 的通知關掉了,請到 設定 → 應用程式 → Free Life → 通知 打開", android.widget.Toast.LENGTH_LONG).show()
+                    return ok
+                }
+                OutlinedButton(onClick = { if (check()) DailyJobs.showNight(ctx) }) { Text("睡前") }
+                OutlinedButton(onClick = {
+                    if (check() && DailyJobs.showEvening(ctx) == 0) {
+                        android.widget.Toast.makeText(ctx, "目前沒有過時未完成的事,所以不會通知", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("傍晚") }
+                OutlinedButton(onClick = { if (check()) DailyJobs.showWeekly(ctx) }) { Text("每週") }
+            }
+
             SectionTitle("課表")
             OutlinedButton(onClick = onOpenTimetable) { Text("設定這學期的課表") }
 
