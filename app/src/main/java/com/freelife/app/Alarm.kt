@@ -323,7 +323,10 @@ class AlarmService : Service() {
     private var speechPlayer: MediaPlayer? = null
     private val speechFallback = Runnable {
         // 6 秒內沒播出語音:改用鈴聲,絕不讓鬧鐘無聲
-        if (speechPlayer == null && player == null) startSound()
+        if (speechPlayer == null && player == null) {
+            diag("9 秒內沒有聲音,改響鈴聲")
+            startSound()
+        }
     }
     private val replaySpeech = Runnable {
         speechPlayer?.let {
@@ -349,8 +352,16 @@ class AlarmService : Service() {
 
     private fun speechFile() = java.io.File(cacheDir, "alarm_speech.wav")
 
+    private var liveMode = false
+
+    private fun diag(msg: String) {
+        SpeechDiag.add(this, msg)
+    }
+
     private fun startSpeech(r: Reminder) {
         speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
+        SpeechDiag.begin(this)
+        liveMode = false
         handler.removeCallbacks(speechFallback)
         handler.postDelayed(speechFallback, 9000L)
         val existing = tts
@@ -360,30 +371,51 @@ class AlarmService : Service() {
         }
         tts = TextToSpeech(this) { status ->
             val t = tts
+            diag("引擎啟動=${if (status == TextToSpeech.SUCCESS) "成功" else "失敗($status)"} 引擎=${t?.defaultEngine}")
             if (status != TextToSpeech.SUCCESS || t == null) {
-                CrashLog.save(this, IllegalStateException("朗讀引擎啟動失敗 status=$status"))
                 handler.post { if (player == null) startSound() }
                 return@TextToSpeech
             }
-            var lang = t.setLanguage(java.util.Locale.TAIWAN)
+            val tw = t.setLanguage(java.util.Locale.TAIWAN)
+            var lang = tw
             if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
                 lang = t.setLanguage(java.util.Locale.CHINESE)
             }
+            diag("中文語言碼=$tw/$lang")
             if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
-                CrashLog.save(this, IllegalStateException("朗讀引擎沒有中文語音,改用鈴聲"))
                 handler.post { if (player == null) startSound() }
                 return@TextToSpeech
             }
+            try {
+                t.setAudioAttributes(alarmAttributes())
+            } catch (e: Exception) {
+                diag("設定鬧鐘音訊失敗")
+            }
             t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {}
+                override fun onStart(utteranceId: String?) {
+                    if (utteranceId == "alarm_live") {
+                        diag("直接朗讀開始")
+                        handler.post { handler.removeCallbacks(speechFallback) }
+                    }
+                }
+
                 override fun onDone(utteranceId: String?) {
-                    handler.post { playSpeechFile() }
+                    if (utteranceId == "alarm_live") {
+                        handler.post { handler.postDelayed({ speakLive() }, 2500L) }
+                    } else {
+                        diag("轉檔完成")
+                        handler.post { playSpeechFile() }
+                    }
                 }
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
-                    CrashLog.save(this@AlarmService, IllegalStateException("語音轉檔失敗"))
-                    handler.post { if (player == null) startSound() }
+                    onError(utteranceId, -1)
+                }
+
+                override fun onError(utteranceId: String?, errorCode: Int) {
+                    diag("朗讀錯誤 id=$utteranceId code=$errorCode")
+                    handler.post { if (utteranceId == "alarm_live") { if (player == null) startSound() } else speakLive() }
                 }
             })
             handler.post { synthesize(t) }
@@ -395,13 +427,27 @@ class AlarmService : Service() {
         val f = speechFile()
         f.delete()
         val rc = t.synthesizeToFile(speechText, android.os.Bundle(), f, "alarm_file")
+        diag("轉檔指令=$rc")
+        if (rc != TextToSpeech.SUCCESS) speakLive()
+    }
+
+    /** 轉檔不行時,直接請朗讀引擎用鬧鐘音量念。 */
+    private fun speakLive() {
+        val t = tts ?: run { if (player == null) startSound(); return }
+        if (speechPlayer != null) return
+        liveMode = true
+        val b = android.os.Bundle()
+        b.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
+        val rc = t.speak(speechText, TextToSpeech.QUEUE_FLUSH, b, "alarm_live")
+        diag("直接朗讀指令=$rc")
         if (rc != TextToSpeech.SUCCESS && player == null) startSound()
     }
 
     private fun playSpeechFile() {
         val f = speechFile()
+        diag("音檔大小=${if (f.exists()) f.length() else -1}")
         if (!f.exists() || f.length() < 1000) {
-            if (player == null) startSound()
+            speakLive()
             return
         }
         releaseSpeechPlayer()
@@ -417,10 +463,12 @@ class AlarmService : Service() {
             mp.start()
             speechPlayer = mp
             handler.removeCallbacks(speechFallback)
+            diag("音檔播放中")
         } catch (e: Exception) {
+            diag("音檔播放失敗:${e.message}")
             CrashLog.save(this, e)
             mp.release()
-            if (player == null) startSound()
+            speakLive()
         }
     }
 

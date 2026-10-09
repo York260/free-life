@@ -503,6 +503,16 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            var diagText by remember { mutableStateOf(SpeechDiag.load(ctx)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                OutlinedButton(onClick = {
+                    val at = System.currentTimeMillis() + 8_000L
+                    ReminderOps.add(ctx, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
+                    android.widget.Toast.makeText(ctx, "8 秒後響,請把手機放著等", android.widget.Toast.LENGTH_LONG).show()
+                }) { Text("8 秒後試響一次") }
+                OutlinedButton(onClick = { diagText = SpeechDiag.load(ctx) }) { Text("看結果") }
+            }
+            Text(diagText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = "鈴聲:$soundName",
                 style = MaterialTheme.typography.bodyMedium,
