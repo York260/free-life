@@ -36,15 +36,6 @@ jobs:
             exit 1
           fi
 
-      - name: Build older variants for bisecting
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk full.apk
-          for pair in C35:1bbddea D36:5326769 E37:168d771; do
-            name=${pair%%:*}; sha=${pair##*:}
-            git worktree add ../w_$name $sha
-            (cd ../w_$name && gradle assembleDebug --no-daemon -q && cp app/build/outputs/apk/debug/app-debug.apk $GITHUB_WORKSPACE/var_$name.apk)
-          done
-
       - name: Keep APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -62,7 +53,6 @@ jobs:
           APK="FreeLife-${{ github.run_number }}.apk"
           cp FreeLife.apk "$APK"
           APKB=""
-          for n in C35 D36 E37; do cp var_$n.apk "FreeLife-${{ github.run_number }}-$n.apk"; APKB="$APKB FreeLife-${{ github.run_number }}-$n.apk"; done
           # 清掉之前卡住的草稿(GitHub 偶爾會把發佈變成 untagged 草稿)
           for id in $(gh api repos/${{ github.repository }}/releases -q '.[] | select(.draft) | .id'); do
             gh api -X DELETE repos/${{ github.repository }}/releases/$id || true
