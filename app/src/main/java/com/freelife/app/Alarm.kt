@@ -352,7 +352,7 @@ class AlarmService : Service() {
     private fun startSpeech(r: Reminder) {
         speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
         handler.removeCallbacks(speechFallback)
-        handler.postDelayed(speechFallback, 6000L)
+        handler.postDelayed(speechFallback, 9000L)
         val existing = tts
         if (existing != null) {
             synthesize(existing)
@@ -361,6 +361,7 @@ class AlarmService : Service() {
         tts = TextToSpeech(this) { status ->
             val t = tts
             if (status != TextToSpeech.SUCCESS || t == null) {
+                CrashLog.save(this, IllegalStateException("朗讀引擎啟動失敗 status=$status"))
                 handler.post { if (player == null) startSound() }
                 return@TextToSpeech
             }
@@ -381,6 +382,7 @@ class AlarmService : Service() {
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
+                    CrashLog.save(this@AlarmService, IllegalStateException("語音轉檔失敗"))
                     handler.post { if (player == null) startSound() }
                 }
             })
