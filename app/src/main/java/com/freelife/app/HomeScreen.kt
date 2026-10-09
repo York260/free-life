@@ -829,7 +829,8 @@ private fun DayStrip(items: List<Occ>, now: LocalDateTime) {
             .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
             .pointerInput(items) {
                 detectTapGestures { pos ->
-                    val m = TRACK_FROM_MIN + (pos.x / widthPx) * TRACK_SPAN_MIN
+                    val rg = trackRange(items)
+                    val m = rg.first + (pos.x / widthPx) * rg.second
                     // 先找涵蓋這個時間的,找不到就找 40 分鐘內最近的
                     val hit = items.firstOrNull { o ->
                         val s = minuteOf(o.start.toLocalTime())

@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
     private var briefingRequested by mutableStateOf(false)
     private var voiceRequested by mutableStateOf(false)
     private var reviewRequested by mutableStateOf(false)
+    private var typeRequested by mutableStateOf(false)
     private var incoming by mutableStateOf<Incoming?>(null)
 
     /** 分享進來的文字或圖片。 */
@@ -113,6 +114,7 @@ class MainActivity : ComponentActivity() {
         ) {
             voiceRequested = true
         }
+        if (savedInstanceState == null && intent.action == VoiceEntry.ACTION_TYPE) typeRequested = true
         BriefingScheduler.schedule(this)
         DailyJobs.schedule(this)
         reviewRequested = intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)
@@ -137,6 +139,12 @@ class MainActivity : ComponentActivity() {
                         if (reviewRequested) {
                             screen = Screen.REVIEW
                             reviewRequested = false
+                        }
+                    }
+                    LaunchedEffect(typeRequested) {
+                        if (typeRequested) {
+                            screen = Screen.ASSISTANT
+                            typeRequested = false
                         }
                     }
                     LaunchedEffect(voiceRequested) {
@@ -239,6 +247,7 @@ class MainActivity : ComponentActivity() {
             briefingRequested = true
         }
         if (VoiceEntry.isVoice(intent)) voiceRequested = true
+        if (intent.action == VoiceEntry.ACTION_TYPE) typeRequested = true
         if (intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)) reviewRequested = true
         readShare(intent)
     }

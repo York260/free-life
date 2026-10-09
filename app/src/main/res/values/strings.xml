@@ -4,5 +4,5 @@
     <string name="voice_label">Free Life 語音</string>
     <string name="shortcut_voice">語音記事</string>
     <string name="tile_voice">語音記事</string>
-    <string name="widget_desc">點一下就開始對助理說話,並顯示下一件行程</string>
+    <string name="widget_desc">今天的下一件行程和時間軸,右上角可直接語音或打字</string>
 </resources>

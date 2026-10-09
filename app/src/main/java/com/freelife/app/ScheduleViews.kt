@@ -382,15 +382,30 @@ fun WeekView(
     }
 }
 
-/** 色條涵蓋的時段:07:00 起 15 小時。 */
+/** 色條涵蓋的時段:預設 07:00–22:00,有更早或更晚的行程就自動延長。 */
 const val TRACK_FROM_MIN = 7 * 60
 const val TRACK_SPAN_MIN = 15 * 60
+
+/** 回傳 (起點分鐘, 總長分鐘),整點對齊。 */
+fun trackRange(items: List<Occ>): Pair<Int, Int> {
+    var from = TRACK_FROM_MIN
+    var to = TRACK_FROM_MIN + TRACK_SPAN_MIN
+    items.forEach { o ->
+        val s = o.start.toLocalTime().hour * 60 + o.start.toLocalTime().minute
+        from = minOf(from, s / 60 * 60)
+        val e = o.end?.takeIf { it.toLocalDate() == o.date }?.let { it.toLocalTime().hour * 60 + it.toLocalTime().minute + 59 } ?: (s + 59)
+        to = maxOf(to, minOf(24 * 60, e / 60 * 60 + 60))
+    }
+    return from to (to - from)
+}
 
 @Composable
 fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui.unit.Dp = 20.dp) {
     val scheme = MaterialTheme.colorScheme
-    val from = TRACK_FROM_MIN
-    val span = TRACK_SPAN_MIN.toFloat()
+    val range = trackRange(items)
+    val from = range.first
+    val spanI = range.second
+    val span = spanI.toFloat()
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -398,7 +413,7 @@ fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui
             .clip(RoundedCornerShape(6.dp))
             .background(scheme.surfaceVariant),
     ) {
-        for (h in listOf(9, 12, 15, 18)) {
+        for (h in listOf(9, 12, 15, 18, 21).filter { it * 60 > from && it * 60 < from + spanI }) {
             Box(
                 modifier = Modifier
                     .offset(x = maxWidth * ((h * 60 - from) / span))
@@ -408,13 +423,13 @@ fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui
             )
         }
         items.forEach { o ->
-            val s = (minutes(o.start.toLocalTime()) - from).coerceIn(0, 900)
+            val s = (minutes(o.start.toLocalTime()) - from).coerceIn(0, spanI)
             val e = if (o.end == null) {
                 s + 30
             } else if (o.end.toLocalDate() != o.date) {
-                900
+                spanI
             } else {
-                (minutes(o.end.toLocalTime()) - from).coerceIn(0, 900)
+                (minutes(o.end.toLocalTime()) - from).coerceIn(0, spanI)
             }
             val w = (maxWidth * ((e - s).coerceAtLeast(20) / span)).coerceAtLeast(6.dp)
             val color = if (o.r.done) {
@@ -434,7 +449,7 @@ fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui
             )
         }
         if (now != null) {
-            val nm = (minutes(now.toLocalTime()) - from).coerceIn(0, 900)
+            val nm = (minutes(now.toLocalTime()) - from).coerceIn(0, spanI)
             Box(
                 modifier = Modifier
                     .offset(x = maxWidth * (nm / span))

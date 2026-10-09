@@ -121,7 +121,7 @@ fun TimetableScreen(
     val scheme = MaterialTheme.colorScheme
     val existing = remember { TimetableBuilder.fromExisting(reminders.toList()) }
     val rows = remember { mutableStateListOf<ClassRow>().apply { addAll(existing.ifEmpty { listOf(ClassRow()) }) } }
-    var semesterStart by remember { mutableStateOf(LocalDate.now()) }
+    val semesterStart = remember { LocalDate.now() }
     var winterStart by remember { mutableStateOf<LocalDate?>(null) }
     var skipHol by remember { mutableStateOf(true) }
     var msg by remember { mutableStateOf<String?>(null) }
@@ -188,13 +188,11 @@ fun TimetableScreen(
         }
         msg?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp)) }
 
-        SectionTitle("寒假什麼時候開始?")
+        SectionTitle("寒假什麼時候開始?(開學後重新輸入新課表就好)")
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { pickDate(winterStart ?: LocalDate.now().plusMonths(3)) { winterStart = it } }) {
                 Text(winterStart?.toString() ?: "選擇寒假第一天")
             }
-            Text("開學/開始:", style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = { pickDate(semesterStart) { semesterStart = it } }) { Text(semesterStart.toString()) }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -258,7 +256,7 @@ fun TimetableScreen(
                 val bad = rows.count { it.title.isNotBlank() && !it.end.isAfter(it.start) }
                 when {
                     w == null -> tell("請先在上面選「寒假第一天」,課表才知道排到哪天為止。")
-                    !w.isAfter(semesterStart) -> tell("寒假第一天要在開始日期之後。")
+                    !w.isAfter(semesterStart) -> tell("寒假第一天要在今天之後。")
                     bad > 0 -> tell("有 $bad 堂課的結束時間早於開始時間,請修正。")
                     else -> {
                         val list = try {

@@ -10,12 +10,18 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.widget.RemoteViews
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 
 /** 各種「直接開始聽」的入口:桌面小工具、快速設定磁貼、長按圖示捷徑、側邊鍵用的第二個圖示。 */
 object VoiceEntry {
     const val ACTION_VOICE = "com.freelife.app.VOICE"
+    const val ACTION_TYPE = "com.freelife.app.TYPE"
 
     fun intent(ctx: Context): Intent =
         Intent(ctx, MainActivity::class.java)
@@ -36,7 +42,7 @@ object VoiceEntry {
     }
 }
 
-/** 桌面小工具:左邊大麥克風,點一下開始說話;右邊顯示下一件行程。 */
+/** 桌面小工具:今天的下一件行程 + 時間軸色條,右上角有打字和語音兩個快捷鍵。 */
 class VoiceWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         for (id in ids) manager.updateAppWidget(id, build(context))
@@ -45,31 +51,101 @@ class VoiceWidget : AppWidgetProvider() {
     companion object {
         fun build(ctx: Context): RemoteViews {
             val v = RemoteViews(ctx.packageName, R.layout.widget_voice)
-            v.setOnClickPendingIntent(R.id.widget_root, VoiceEntry.pending(ctx))
-            v.setTextViewText(R.id.widget_next, nextText(ctx))
+            val open = PendingIntent.getActivity(
+                ctx, 7003,
+                Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val type = PendingIntent.getActivity(
+                ctx, 7002,
+                Intent(ctx, MainActivity::class.java).setAction(VoiceEntry.ACTION_TYPE)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            v.setOnClickPendingIntent(R.id.widget_root, open)
+            v.setOnClickPendingIntent(R.id.widget_type, type)
+            v.setOnClickPendingIntent(R.id.widget_mic, VoiceEntry.pending(ctx))
+            try {
+                fill(ctx, v)
+            } catch (e: Exception) {
+                CrashLog.save(ctx, e)
+            }
             return v
         }
 
-        private fun nextText(ctx: Context): String {
+        private fun fill(ctx: Context, v: RemoteViews) {
             val zone = ZoneId.systemDefault()
-            val now = System.currentTimeMillis()
+            val nowMs = System.currentTimeMillis()
             val today = LocalDate.now()
-            val occs = ScheduleModel.occurrences(
-                ReminderStore.load(ctx).filter { !it.done },
-                today,
-                today.plusDays(2),
-            )
-            val next = occs
-                .filter { it.effectiveEnd.atZone(zone).toInstant().toEpochMilli() >= now }
+            val all = ReminderStore.load(ctx)
+            val todayItems = ScheduleModel.occurrences(all, today, today.plusDays(1))
+                .filter { it.r.hasTime }
+                .sortedBy { it.start }
+            val upcoming = ScheduleModel.occurrences(all.filter { !it.done }, today, today.plusDays(3))
+                .filter { it.effectiveEnd.atZone(zone).toInstant().toEpochMilli() >= nowMs }
                 .minByOrNull { it.start }
-                ?: return "目前沒有接下來的行程"
-            val time = next.start.toLocalTime().toString().take(5)
-            val day = when (next.start.toLocalDate()) {
-                today -> "今天"
-                today.plusDays(1) -> "明天"
-                else -> ""
+            val left = todayItems.count { !it.r.done && it.effectiveEnd.atZone(zone).toInstant().toEpochMilli() >= nowMs }
+            if (upcoming == null) {
+                v.setTextViewText(R.id.widget_label, "目前沒有接下來的行程")
+                v.setTextViewText(R.id.widget_next, "輕鬆一下")
+            } else {
+                val startMs = upcoming.start.atZone(zone).toInstant().toEpochMilli()
+                val mins = ((startMs - nowMs) / 60000).toInt()
+                val rel = when {
+                    mins <= 0 -> "進行中"
+                    mins < 60 -> "$mins 分鐘後"
+                    mins < 24 * 60 -> "${mins / 60} 小時 ${mins % 60} 分後"
+                    else -> ""
+                }
+                val day = when (upcoming.start.toLocalDate()) {
+                    today -> ""
+                    today.plusDays(1) -> "明天 "
+                    else -> upcoming.start.toLocalDate().let { "${it.monthValue}/${it.dayOfMonth} " }
+                }
+                v.setTextViewText(R.id.widget_label, "下一件 · $rel · 今天還有 $left 件".replace(" ·  · ", " · "))
+                v.setTextViewText(R.id.widget_next, day + upcoming.start.toLocalTime().toString().take(5) + "  " + upcoming.r.title)
             }
-            return "下一件 $day $time ${next.r.title}".replace("  ", " ")
+            v.setImageViewBitmap(R.id.widget_strip, stripBitmap(todayItems, LocalDateTime.now()))
+        }
+
+        private fun stripBitmap(items: List<Occ>, now: LocalDateTime): Bitmap {
+            val w = 720
+            val h = 44
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val c = Canvas(bmp)
+            val p = Paint(Paint.ANTI_ALIAS_FLAG)
+            p.color = 0xFF1E2B44.toInt()
+            c.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), 12f, 12f, p)
+            val (from, span) = trackRange(items)
+            fun x(min: Int) = (min - from).coerceIn(0, span).toFloat() / span * w
+            p.color = 0x55FFFFFF
+            for (hh in listOf(9, 12, 15, 18, 21)) {
+                if (hh * 60 > from && hh * 60 < from + span) c.drawRect(x(hh * 60), 0f, x(hh * 60) + 2f, h.toFloat(), p)
+            }
+            fun mins(t: java.time.LocalTime) = t.hour * 60 + t.minute
+            for (o in items) {
+                val s = mins(o.start.toLocalTime())
+                val e = when {
+                    o.end == null -> s + 30
+                    o.end.toLocalDate() != o.date -> from + span
+                    else -> mins(o.end.toLocalTime())
+                }
+                val x0 = x(s)
+                val x1 = maxOf(x(e), x0 + 10f)
+                val base = when {
+                    o.r.done -> 0xFF8A94A6.toInt()
+                    o.end == null -> 0xFFFFB86B.toInt()
+                    else -> 0xFF5CE1FF.toInt()
+                }
+                p.color = base
+                p.alpha = if (o.r.ringless) 115 else 235
+                c.drawRoundRect(RectF(x0, 6f, x1, h - 6f), 8f, 8f, p)
+            }
+            p.alpha = 255
+            p.color = 0xFFFFFFFF.toInt()
+            val nx = x(mins(now.toLocalTime()))
+            c.drawRect(nx - 2f, 0f, nx + 2f, h.toFloat(), p)
+            return bmp
         }
 
         fun refresh(ctx: Context) {

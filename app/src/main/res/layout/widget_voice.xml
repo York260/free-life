@@ -4,48 +4,73 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_bg"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:padding="12dp">
-
-    <FrameLayout
-        android:layout_width="56dp"
-        android:layout_height="56dp"
-        android:background="@drawable/widget_mic_bg"
-        android:padding="14dp">
-
-        <ImageView
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:contentDescription="語音記事"
-            android:src="@drawable/ic_mic_cyan" />
-    </FrameLayout>
+    android:orientation="vertical"
+    android:padding="14dp">
 
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/widget_title"
-            android:layout_width="match_parent"
+            android:id="@+id/widget_label"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="點一下,直接說"
-            android:textColor="#FFFFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/widget_next"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_weight="1"
             android:ellipsize="end"
-            android:maxLines="2"
-            android:text="今天沒有更多行程"
-            android:textColor="#FFB8C7DD"
-            android:textSize="13sp" />
+            android:maxLines="1"
+            android:text="下一件"
+            android:textColor="#FFB8E8F5"
+            android:textSize="12sp" />
+
+        <FrameLayout
+            android:id="@+id/widget_type"
+            android:layout_width="44dp"
+            android:layout_height="32dp"
+            android:background="@drawable/widget_btn_bg"
+            android:padding="6dp">
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="打字"
+                android:src="@drawable/ic_keyboard_cyan" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/widget_mic"
+            android:layout_width="44dp"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/widget_btn_bg"
+            android:padding="6dp">
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="語音"
+                android:src="@drawable/ic_mic_cyan" />
+        </FrameLayout>
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_next"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="今天沒有更多行程"
+        android:textColor="#FFFFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <ImageView
+        android:id="@+id/widget_strip"
+        android:layout_width="match_parent"
+        android:layout_height="18dp"
+        android:layout_marginTop="10dp"
+        android:contentDescription="今日時間軸"
+        android:scaleType="fitXY" />
 </LinearLayout>

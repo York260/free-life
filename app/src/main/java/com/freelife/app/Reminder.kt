@@ -141,6 +141,7 @@ object ReminderStore {
             .edit()
             .putString(KEY, encodeArray(list).toString())
             .apply()
+        VoiceWidget.refresh(ctx)
     }
 
     private fun save(ctx: Context, list: List<Reminder>) = saveAll(ctx, list)
