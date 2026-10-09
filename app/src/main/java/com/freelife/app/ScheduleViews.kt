@@ -382,11 +382,11 @@ fun WeekView(
     }
 }
 
-@Composable
 /** 色條涵蓋的時段:07:00 起 15 小時。 */
 const val TRACK_FROM_MIN = 7 * 60
 const val TRACK_SPAN_MIN = 15 * 60
 
+@Composable
 fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui.unit.Dp = 20.dp) {
     val scheme = MaterialTheme.colorScheme
     val from = TRACK_FROM_MIN
