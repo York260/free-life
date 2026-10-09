@@ -47,6 +47,9 @@ jobs:
           NOTES: "自動編譯,commit ${{ github.sha }}"
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk FreeLife.apk
+          # 每一版用不同檔名,避免手機瀏覽器拿到舊的(已失效的)下載轉址
+          APK="FreeLife-${{ github.run_number }}.apk"
+          cp FreeLife.apk "$APK"
           # 清掉之前卡住的草稿(GitHub 偶爾會把發佈變成 untagged 草稿)
           for id in $(gh api repos/${{ github.repository }}/releases -q '.[] | select(.draft) | .id'); do
             gh api -X DELETE repos/${{ github.repository }}/releases/$id || true
@@ -55,10 +58,14 @@ jobs:
           git tag -f latest "${{ github.sha }}"
           git push -f origin refs/tags/latest
           if gh api repos/${{ github.repository }}/releases/tags/latest > /dev/null 2>&1; then
-            gh release upload latest FreeLife.apk --clobber
+            # 先清掉舊版本的 APK,只留這一版
+            for a in $(gh api repos/${{ github.repository }}/releases/tags/latest -q '.assets[].id'); do
+              gh api -X DELETE repos/${{ github.repository }}/releases/assets/$a || true
+            done
+            gh release upload latest "$APK" --clobber
             gh release edit latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false
           else
-            gh release create latest FreeLife.apk --target "${{ github.sha }}" --prerelease --title "$TITLE" --notes "$NOTES"
+            gh release create latest "$APK" --target "${{ github.sha }}" --prerelease --title "$TITLE" --notes "$NOTES"
           fi
           # 最後確認真的公開了
           for i in 1 2 3 4 5; do
