@@ -41,6 +41,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
@@ -542,15 +545,15 @@ private fun DaySummary(
                     )
                 }
             }
-            Box(modifier = Modifier.padding(top = 10.dp)) { WeekTrack(items, now, 12.dp) }
-            val bits = mutableListOf("今天 ${items.size} 件,$open 件未完成")
-            if (late > 0) bits += "$late 件已過時"
-            Text(
-                bits.joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (late > 0) scheme.error else scheme.onPrimaryContainer.copy(alpha = 0.8f),
-                modifier = Modifier.padding(top = 6.dp),
-            )
+            DayStrip(items, now)
+            if (late > 0) {
+                Text(
+                    "$late 件已過時",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
         }
     }
 }
@@ -808,5 +811,56 @@ private fun OverdueCard(
                 }
             }
         }
+    }
+}
+
+/** 今天的時間色條:點有顏色的地方,下面顯示那件事的時間和名稱。 */
+@Composable
+private fun DayStrip(items: List<Occ>, now: LocalDateTime) {
+    val scheme = MaterialTheme.colorScheme
+    var widthPx by remember { mutableStateOf(1) }
+    var picked by remember { mutableStateOf<Occ?>(null) }
+    var tappedEmpty by remember { mutableStateOf(false) }
+    fun minuteOf(t: java.time.LocalTime) = t.hour * 60 + t.minute
+    Box(
+        modifier = Modifier
+            .padding(top = 10.dp)
+            .fillMaxWidth()
+            .onSizeChanged { widthPx = it.width.coerceAtLeast(1) }
+            .pointerInput(items) {
+                detectTapGestures { pos ->
+                    val m = TRACK_FROM_MIN + (pos.x / widthPx) * TRACK_SPAN_MIN
+                    // 先找涵蓋這個時間的,找不到就找 40 分鐘內最近的
+                    val hit = items.firstOrNull { o ->
+                        val s = minuteOf(o.start.toLocalTime())
+                        val e = o.end?.let { if (it.toLocalDate() != o.date) 24 * 60 else minuteOf(it.toLocalTime()) } ?: (s + 30)
+                        m >= s && m <= maxOf(e, s + 20)
+                    } ?: items.minByOrNull { kotlin.math.abs(minuteOf(it.start.toLocalTime()) - m) }
+                        ?.takeIf { kotlin.math.abs(minuteOf(it.start.toLocalTime()) - m) <= 40 }
+                    picked = if (hit == picked) null else hit
+                    tappedEmpty = hit == null
+                }
+            },
+    ) {
+        WeekTrack(items, now, 18.dp)
+    }
+    val p = picked
+    if (p != null) {
+        val time = if (p.end != null) "${p.start.format(HM)}–${p.end.format(HM)}" else p.start.format(HM)
+        Text(
+            "$time  ${p.r.title}" + (if (p.r.location.isBlank()) "" else " @${p.r.location}") + if (p.r.done) "(已完成)" else "",
+            style = MaterialTheme.typography.bodyMedium,
+            color = scheme.onPrimaryContainer,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    } else if (tappedEmpty) {
+        Text(
+            "這段時間沒有行程",
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onPrimaryContainer.copy(alpha = 0.7f),
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }

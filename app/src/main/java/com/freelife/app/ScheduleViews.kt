@@ -383,10 +383,14 @@ fun WeekView(
 }
 
 @Composable
+/** 色條涵蓋的時段:07:00 起 15 小時。 */
+const val TRACK_FROM_MIN = 7 * 60
+const val TRACK_SPAN_MIN = 15 * 60
+
 fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui.unit.Dp = 20.dp) {
     val scheme = MaterialTheme.colorScheme
-    val from = 7 * 60
-    val span = 15 * 60f
+    val from = TRACK_FROM_MIN
+    val span = TRACK_SPAN_MIN.toFloat()
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -424,7 +428,7 @@ fun WeekTrack(items: List<Occ>, now: LocalDateTime?, height: androidx.compose.ui
                 modifier = Modifier
                     .offset(x = maxWidth * (s / span), y = 3.dp)
                     .width(w)
-                    .height(14.dp)
+                    .height((height - 6.dp).coerceAtLeast(6.dp))
                     .clip(RoundedCornerShape(4.dp))
                     .background(color.copy(alpha = if (o.r.ringless) 0.45f else 0.9f)),
             )
