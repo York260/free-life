@@ -217,6 +217,7 @@ class MainActivity : ComponentActivity() {
                                     onSave = { list, replace ->
                                         if (replace) reminders.filter { it.tag == TIMETABLE_TAG }.toList().forEach { deleteReminder(it) }
                                         list.forEach { addReminder(it) }
+                                        screen = Screen.HOME
                                     },
                                     onBack = { screen = Screen.SETTINGS },
                                 )

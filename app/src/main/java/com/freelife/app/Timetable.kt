@@ -247,25 +247,43 @@ fun TimetableScreen(
             modifier = Modifier.padding(top = 4.dp),
         ) { Text("+ 加一堂課") }
 
+        fun tell(text: String) {
+            msg = text
+            android.widget.Toast.makeText(ctx, text, android.widget.Toast.LENGTH_LONG).show()
+        }
         Button(
             onClick = {
                 val w = winterStart
+                val blank = rows.count { it.title.isBlank() }
+                val bad = rows.count { it.title.isNotBlank() && !it.end.isAfter(it.start) }
                 when {
-                    w == null -> msg = "請先選寒假第一天,課表才知道排到哪天為止。"
-                    !w.isAfter(semesterStart) -> msg = "寒假要在開始日期之後。"
+                    w == null -> tell("請先在上面選「寒假第一天」,課表才知道排到哪天為止。")
+                    !w.isAfter(semesterStart) -> tell("寒假第一天要在開始日期之後。")
+                    bad > 0 -> tell("有 $bad 堂課的結束時間早於開始時間,請修正。")
                     else -> {
-                        val list = TimetableBuilder.build(rows.toList(), semesterStart, w, skipHol)
+                        val list = try {
+                            TimetableBuilder.build(rows.toList(), semesterStart, w, skipHol)
+                        } catch (e: Exception) {
+                            CrashLog.save(ctx, e)
+                            emptyList()
+                        }
                         if (list.isEmpty()) {
-                            msg = "還沒有填任何課。"
+                            tell(if (blank > 0) "課名不能空白,請填上課名。" else "還沒有填任何課。")
                         } else {
-                            onSave(list, true)
-                            msg = "已排好 ${list.size} 門課,每週重複到 ${w.minusDays(1)}。"
+                            try {
+                                onSave(list, true)
+                                tell("已排好 ${list.size} 堂課,每週重複到 ${w.minusDays(1)}" + if (blank > 0) "($blank 堂沒課名的略過)" else "")
+                            } catch (e: Exception) {
+                                CrashLog.save(ctx, e)
+                                tell("存檔失敗:${e.message}")
+                            }
                         }
                     }
                 }
             },
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         ) { Text(if (existing.isEmpty()) "排進行程" else "更新課表(取代舊的)") }
+        msg?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = scheme.primary, modifier = Modifier.padding(top = 8.dp)) }
         Spacer(Modifier.height(24.dp))
     }
 }

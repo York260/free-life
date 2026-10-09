@@ -315,10 +315,25 @@ class AlarmService : Service() {
         handler.postDelayed(autoStop, AUTO_STOP_MS)
     }
 
-    // ── 語音播報:用手機內建朗讀,在鬧鐘音量上唸出提醒內容,重複唸到你處理為止 ──
+    // ── 語音播報 ──
+    // 先用手機內建朗讀把句子「錄」成音檔,再用鬧鐘音量播放並重複。
+    // 直接 speak() 時,有些手機的朗讀引擎會走媒體音量(常常是 0),所以會只有震動沒有聲音。
     private var tts: TextToSpeech? = null
     private var speechText = ""
-    private val speakAgain = Runnable { speakNow() }
+    private var speechPlayer: MediaPlayer? = null
+    private val speechFallback = Runnable {
+        // 6 秒內沒播出語音:改用鈴聲,絕不讓鬧鐘無聲
+        if (speechPlayer == null && player == null) startSound()
+    }
+    private val replaySpeech = Runnable {
+        speechPlayer?.let {
+            try {
+                it.seekTo(0)
+                it.start()
+            } catch (ignored: Exception) {
+            }
+        }
+    }
 
     /** 依設定:語音播報 / 鈴聲 / 鈴聲加語音。語音不能用時自動改回鈴聲。 */
     private fun startAlert(r: Reminder) {
@@ -332,11 +347,15 @@ class AlarmService : Service() {
         }
     }
 
+    private fun speechFile() = java.io.File(cacheDir, "alarm_speech.wav")
+
     private fun startSpeech(r: Reminder) {
         speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
+        handler.removeCallbacks(speechFallback)
+        handler.postDelayed(speechFallback, 6000L)
         val existing = tts
         if (existing != null) {
-            speakNow()
+            synthesize(existing)
             return
         }
         tts = TextToSpeech(this) { status ->
@@ -345,15 +364,19 @@ class AlarmService : Service() {
                 handler.post { if (player == null) startSound() }
                 return@TextToSpeech
             }
-            val lang = t.setLanguage(java.util.Locale.TAIWAN)
+            var lang = t.setLanguage(java.util.Locale.TAIWAN)
             if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
-                t.setLanguage(java.util.Locale.CHINESE)
+                lang = t.setLanguage(java.util.Locale.CHINESE)
             }
-            t.setAudioAttributes(alarmAttributes())
+            if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
+                CrashLog.save(this, IllegalStateException("朗讀引擎沒有中文語音,改用鈴聲"))
+                handler.post { if (player == null) startSound() }
+                return@TextToSpeech
+            }
             t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {}
                 override fun onDone(utteranceId: String?) {
-                    handler.postDelayed(speakAgain, 6000L)
+                    handler.post { playSpeechFile() }
                 }
 
                 @Deprecated("Deprecated in Java")
@@ -361,20 +384,57 @@ class AlarmService : Service() {
                     handler.post { if (player == null) startSound() }
                 }
             })
-            handler.post { speakNow() }
+            handler.post { synthesize(t) }
         }
     }
 
-    private fun speakNow() {
-        val t = tts ?: return
+    private fun synthesize(t: TextToSpeech) {
         if (speechText.isBlank()) return
-        val params = android.os.Bundle()
-        params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, AppSettings.alarmVolume(this) / 100f)
-        t.speak(speechText, TextToSpeech.QUEUE_FLUSH, params, "alarm")
+        val f = speechFile()
+        f.delete()
+        val rc = t.synthesizeToFile(speechText, android.os.Bundle(), f, "alarm_file")
+        if (rc != TextToSpeech.SUCCESS && player == null) startSound()
+    }
+
+    private fun playSpeechFile() {
+        val f = speechFile()
+        if (!f.exists() || f.length() < 1000) {
+            if (player == null) startSound()
+            return
+        }
+        releaseSpeechPlayer()
+        val mp = MediaPlayer()
+        try {
+            mp.setAudioAttributes(alarmAttributes())
+            mp.setDataSource(f.absolutePath)
+            mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
+            val v = AppSettings.alarmVolume(this) / 100f
+            mp.setVolume(v, v)
+            mp.setOnCompletionListener { handler.postDelayed(replaySpeech, 2500L) }
+            mp.prepare()
+            mp.start()
+            speechPlayer = mp
+            handler.removeCallbacks(speechFallback)
+        } catch (e: Exception) {
+            CrashLog.save(this, e)
+            mp.release()
+            if (player == null) startSound()
+        }
+    }
+
+    private fun releaseSpeechPlayer() {
+        handler.removeCallbacks(replaySpeech)
+        try {
+            speechPlayer?.stop()
+        } catch (ignored: Exception) {
+        }
+        speechPlayer?.release()
+        speechPlayer = null
     }
 
     private fun stopSpeech() {
-        handler.removeCallbacks(speakAgain)
+        handler.removeCallbacks(speechFallback)
+        releaseSpeechPlayer()
         try {
             tts?.stop()
         } catch (ignored: Exception) {
