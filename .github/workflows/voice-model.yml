@@ -27,30 +27,26 @@ jobs:
           ls -l sherpa.aar model.tar.bz2
           tar xjf model.tar.bz2
 
-      - name: Inspect
+      - name: Inspect API
         run: |
-          {
-            echo "== model files"; ls -la "$MODEL" | head -40
-            echo "== sizes"; du -sh "$MODEL"/* | head -40
-            echo "== README"; head -c 3000 "$MODEL"/README.md 2>/dev/null || true
-          } > model.txt
-          mkdir aar && cd aar && unzip -q ../sherpa.aar && ls -R | head -30 > ../aar.txt
+          mkdir aar && cd aar && unzip -q ../sherpa.aar
+          unzip -l classes.jar | grep -i "tts\|GeneratedAudio" | awk '{print $4}' > ../api.txt || true
           mkdir cls && cd cls && unzip -q ../classes.jar
           for c in OfflineTts OfflineTtsConfig OfflineTtsModelConfig OfflineTtsKokoroModelConfig GeneratedAudio; do
             f=$(find . -name "$c.class" | head -1)
-            [ -n "$f" ] && javap -cp . "${f%.class}" | sed 's|^|  |' >> ../../aar.txt || echo "missing $c" >> ../../aar.txt
+            if [ -n "$f" ]; then javap -cp . "${f#./}" 2>&1 | sed "s|^|  |" >> ../../api.txt; else echo "missing $c" >> ../../api.txt; fi
           done
           cd ../..
-          cat model.txt aar.txt
-          for f in model.txt aar.txt; do
-            msg=$(head -c 9000 $f | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
-            echo "::notice title=$f::$msg"
-          done
+          ls aar/jni/arm64-v8a >> api.txt
+          cat api.txt
+          msg=$(head -c 12000 api.txt | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::notice title=api.txt::$msg"
 
       - name: Package and publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view voice-models --json assets -q '.assets[].name' 2>/dev/null | grep -q kokoro-zh.zip; then echo "already published"; exit 0; fi
           (cd "$MODEL" && zip -qr ../kokoro-zh.zip . -x "LICENSE" -x "*.md")
           ls -l kokoro-zh.zip
           echo "::notice title=zip::$(stat -c %s kokoro-zh.zip) bytes"
