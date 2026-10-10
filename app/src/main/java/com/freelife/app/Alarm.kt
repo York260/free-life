@@ -430,11 +430,6 @@ class AlarmService : Service() {
                 handler.post { if (player == null) startSound() }
                 return@TextToSpeech
             }
-            try {
-                t.setAudioAttributes(alarmAttributes())
-            } catch (e: Exception) {
-                diag("設定鬧鐘音訊失敗")
-            }
             t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     if (utteranceId == "alarm_live") {
@@ -485,7 +480,6 @@ class AlarmService : Service() {
         liveMode = true
         boostMusicVolume()
         val b = android.os.Bundle()
-        b.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
         val rc = t.speak(speechText, TextToSpeech.QUEUE_FLUSH, b, "alarm_live")
         diag("直接朗讀指令=$rc")
         if (rc != TextToSpeech.SUCCESS && player == null) startSound()
