@@ -1,0 +1,60 @@
+name: Prepare voice model
+
+# 下載 sherpa-onnx 與 Kokoro 中文模型,檢查內容,重新打包成 zip 放到 voice-models 發佈,手機從這裡下載
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/voice-model.yml"]
+
+permissions:
+  contents: write
+
+env:
+  SHERPA_VER: "1.12.15"
+  MODEL: "kokoro-int8-multi-lang-v1_1"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download
+        run: |
+          curl -sSL -o sherpa.aar "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VER}/sherpa-onnx-${SHERPA_VER}.aar"
+          curl -sSL -o model.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/${MODEL}.tar.bz2"
+          ls -l sherpa.aar model.tar.bz2
+          tar xjf model.tar.bz2
+
+      - name: Inspect
+        run: |
+          {
+            echo "== model files"; ls -la "$MODEL" | head -40
+            echo "== sizes"; du -sh "$MODEL"/* | head -40
+            echo "== README"; head -c 3000 "$MODEL"/README.md 2>/dev/null || true
+          } > model.txt
+          mkdir aar && cd aar && unzip -q ../sherpa.aar && ls -R | head -30 > ../aar.txt
+          mkdir cls && cd cls && unzip -q ../classes.jar
+          for c in OfflineTts OfflineTtsConfig OfflineTtsModelConfig OfflineTtsKokoroModelConfig GeneratedAudio; do
+            f=$(find . -name "$c.class" | head -1)
+            [ -n "$f" ] && javap -cp . "${f%.class}" | sed 's|^|  |' >> ../../aar.txt || echo "missing $c" >> ../../aar.txt
+          done
+          cd ../..
+          cat model.txt aar.txt
+          for f in model.txt aar.txt; do
+            msg=$(head -c 9000 $f | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::notice title=$f::$msg"
+          done
+
+      - name: Package and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd "$MODEL" && zip -qr ../kokoro-zh.zip . -x "LICENSE" -x "*.md")
+          ls -l kokoro-zh.zip
+          echo "::notice title=zip::$(stat -c %s kokoro-zh.zip) bytes"
+          if ! gh release view voice-models > /dev/null 2>&1; then
+            gh release create voice-models --title "語音模型" --notes "Kokoro 中文語音模型(sherpa-onnx ${SHERPA_VER} 用)" --prerelease
+          fi
+          gh release upload voice-models kokoro-zh.zip sherpa.aar --clobber
