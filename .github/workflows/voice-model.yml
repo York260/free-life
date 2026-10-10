@@ -30,11 +30,11 @@ jobs:
       - name: Inspect API
         run: |
           mkdir aar && cd aar && unzip -q ../sherpa.aar
-          unzip -l classes.jar | grep -i "tts\|GeneratedAudio" | awk '{print $4}' > ../api.txt || true
+          echo start > ../api.txt
           mkdir cls && cd cls && unzip -q ../classes.jar
           for c in OfflineTts OfflineTtsConfig OfflineTtsModelConfig OfflineTtsKokoroModelConfig GeneratedAudio; do
             f=$(find . -name "$c.class" | head -1)
-            if [ -n "$f" ]; then javap -cp . "${f#./}" 2>&1 | sed "s|^|  |" >> ../../api.txt; else echo "missing $c" >> ../../api.txt; fi
+            if [ -n "$f" ]; then echo "## $c" >> ../../api.txt; javap -cp . "${f#./}" 2>&1 | grep -E " get[A-Z]|\($|public com.k2fsa.sherpa.onnx.$c\(|GeneratedAudio\(|getSamples|save" | grep -v Default | sed "s|com.k2fsa.sherpa.onnx.||g; s|java.lang.||g; s|public final ||" >> ../../api.txt; else echo "missing $c" >> ../../api.txt; fi
           done
           cd ../..
           ls aar/jni/arm64-v8a >> api.txt
