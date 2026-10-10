@@ -368,6 +368,10 @@ object VoiceStyle {
     /** 用目前的角色、聲音、音調、語速念一句例句(鬧鐘音量)。 */
     fun preview(ctx: Context, level: Int = 0, onDone: (Boolean) -> Unit) {
         val app = ctx.applicationContext
+        if (Kokoro.active(app)) {
+            Kokoro.preview(app, AlarmSpeech.sample(app, level), Kokoro.voiceOf(app), AppSettings.ttsRate(app), onDone)
+            return
+        }
         val synth = SpeechSynth(app) { SpeechDiag.add(app, it) }
         val out = File(app.cacheDir, "preview.wav")
         val engines = SpeechEngines.candidates(app)

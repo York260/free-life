@@ -431,9 +431,56 @@ class AlarmService : Service() {
         speechActive = true
         handler.removeCallbacks(speechFallback)
         handler.postDelayed(speechFallback, 9000L)
+        if (Kokoro.active(this)) {
+            trySynthKokoro()
+            return
+        }
         val engines = SpeechEngines.candidates(this)
         diag("引擎順序:" + engines.joinToString("→") { SpeechEngines.label(it) })
         trySynth(engines, 0)
+    }
+
+    /** 生動語音(Kokoro,離線):先合成第一段馬上念,後面兩段背景準備;失敗就改用手機內建語音。 */
+    private fun trySynthKokoro() {
+        val sid = Kokoro.voiceOf(this)
+        val speed = AppSettings.ttsRate(this)
+        diag("用生動語音,聲音 #$sid")
+        kokoroLevel(startLevel, sid, speed) { ok, note ->
+            if (!speechActive) return@kokoroLevel
+            diag(note)
+            if (ok) {
+                levelReady[startLevel] = true
+                playLevel(startLevel)
+                kokoroRest(startLevel + 1, sid, speed)
+            } else {
+                diag("改用手機內建語音")
+                trySynth(SpeechEngines.candidates(this), 0)
+            }
+        }
+    }
+
+    /** 有事先做好的音檔就直接用,沒有才當場合成。 */
+    private fun kokoroLevel(lv: Int, sid: Int, speed: Float, done: (Boolean, String) -> Unit) {
+        val cached = KokoroCache.file(this, speechTexts[lv], sid, speed)
+        if (cached.exists() && cached.length() > 1000) {
+            try {
+                cached.copyTo(levelFile(lv), overwrite = true)
+                done(true, "${Roles.LEVEL_NAMES[lv]}:用事先做好的音檔")
+                return
+            } catch (ignored: Exception) {
+            }
+        }
+        Kokoro.synth(this, speechTexts[lv], sid, speed, levelFile(lv), done)
+    }
+
+    private fun kokoroRest(lv: Int, sid: Int, speed: Float) {
+        if (!speechActive || lv > 2) return
+        kokoroLevel(lv, sid, speed) { ok, _ ->
+            if (!speechActive) return@kokoroLevel
+            if (ok) levelReady[lv] = true
+            diag("${Roles.LEVEL_NAMES[lv]}:${if (ok) "準備好了" else "合成失敗,沿用前一段"}")
+            kokoroRest(lv + 1, sid, speed)
+        }
     }
 
     private fun trySynth(engines: List<String?>, i: Int, attempt: Int = 0) {

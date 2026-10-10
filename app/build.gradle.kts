@@ -14,6 +14,10 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "0.1.0"
+        // 生動語音(sherpa-onnx)只放手機(arm64)和模擬器(x86_64)需要的版本,APK 小一點
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     // 固定的除錯簽章金鑰:每次編譯簽章相同,新版 APK 才能直接覆蓋安裝、不會遺失提醒資料。
@@ -56,4 +60,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    // 離線生動語音 Kokoro 的推論引擎;AAR 由 CI 從 sherpa-onnx 官方發佈下載到 app/libs
+    implementation(files("libs/sherpa-onnx.aar"))
 }

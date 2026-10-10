@@ -121,6 +121,19 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) readShare(intent)
         // 雲端模擬器自動測試用:adb shell am start ... --ez probe true
         if (savedInstanceState == null && intent.getBooleanExtra("probe", false)) VoiceProbe.run(this)
+        // 雲端模擬器測生動語音:下載模型 → 切換 → 8 秒後響一次
+        if (savedInstanceState == null && intent.getBooleanExtra("probeKokoro", false)) {
+            val app = applicationContext
+            SpeechDiag.add(app, "Kokoro 測試:開始下載")
+            Kokoro.download(app, {}) { ok, msg ->
+                SpeechDiag.add(app, "Kokoro 下載:${if (ok) "成功" else "失敗"} $msg")
+                if (ok) {
+                    AppSettings.setVoiceEngine(app, "kokoro")
+                    val at = System.currentTimeMillis() + 8_000L
+                    ReminderOps.add(app, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
+                }
+            }
+        }
         if (savedInstanceState == null && intent.getBooleanExtra("probeAlarm", false)) {
             val at = System.currentTimeMillis() + 8_000L
             ReminderOps.add(this, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
@@ -385,6 +398,7 @@ class MainActivity : ComponentActivity() {
         refreshReminders()
         refreshPermissions()
         checkClass(r)
+        KokoroCache.prerender(this, r)
     }
 
     private fun updateReminder(r: Reminder) {
@@ -394,6 +408,7 @@ class MainActivity : ComponentActivity() {
         refreshReminders()
         refreshPermissions()
         checkClass(r)
+        KokoroCache.prerender(this, r)
     }
 
     /** 上課視同開會:提醒會在上課中響,就跳出警告。 */

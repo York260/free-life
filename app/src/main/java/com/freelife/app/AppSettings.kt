@@ -145,6 +145,10 @@ object AppSettings {
     fun ttsRate(ctx: Context): Float = Roles.rate(ctx, tone(ctx))
     fun setTtsRate(ctx: Context, v: Float) = Roles.setRate(ctx, tone(ctx), v)
 
+    /** 鬧鐘念台詞用哪種語音:system = 手機內建朗讀,kokoro = 離線生動語音(要先下載模型)。 */
+    fun voiceEngine(ctx: Context): String = prefs(ctx).getString("voice_engine", "system") ?: "system"
+    fun setVoiceEngine(ctx: Context, v: String) = prefs(ctx).edit().putString("voice_engine", v).apply()
+
     fun alarmMode(ctx: Context): String = prefs(ctx).getString("alarm_mode", "voice") ?: "voice"
     fun setAlarmMode(ctx: Context, v: String) = prefs(ctx).edit().putString("alarm_mode", v).apply()
 

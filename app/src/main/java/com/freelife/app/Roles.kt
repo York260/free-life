@@ -133,10 +133,28 @@ object Roles {
     fun rate(ctx: Context, code: String): Float = prefs(ctx).getFloat("${code}_rate", def(code).rate)
     fun setRate(ctx: Context, code: String, v: Float) = prefs(ctx).edit().putFloat("${code}_rate", v).apply()
 
+    /** 生動語音(Kokoro)的聲音編號;預設:賈維斯、武俠、教官用男聲,主播、妹妹用女聲。 */
+    fun kokoroVoice(ctx: Context, code: String): Int {
+        val saved = prefs(ctx).getInt("${code}_kvoice", -1)
+        if (saved >= 0) return saved
+        val f = KokoroVoices.FEMALE
+        val m = KokoroVoices.MALE
+        fun pick(list: List<Int>, i: Int) = list.getOrNull(i) ?: list.firstOrNull() ?: 0
+        return when (code) {
+            "wuxia" -> pick(m, 1)
+            "anchor" -> pick(f, 0)
+            "drill" -> pick(m, 2)
+            "imouto" -> pick(f, 1)
+            else -> pick(m, 0)
+        }
+    }
+
+    fun setKokoroVoice(ctx: Context, code: String, v: Int) = prefs(ctx).edit().putInt("${code}_kvoice", v).apply()
+
     /** 把這個角色的修改全部清掉,回到預設。 */
     fun reset(ctx: Context, code: String) {
         val e = prefs(ctx).edit()
-        listOf("address", "line0", "line1", "line2", "voice", "pitch", "rate").forEach { e.remove("${code}_$it") }
+        listOf("address", "line0", "line1", "line2", "voice", "pitch", "rate", "kvoice").forEach { e.remove("${code}_$it") }
         e.apply()
     }
 
