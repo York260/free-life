@@ -39,14 +39,16 @@ object AppSettings {
         prefs(ctx).edit().putString("assistant_name", value.trim()).apply()
     }
 
-    fun address(ctx: Context): String =
-        (prefs(ctx).getString("address", "") ?: "").ifBlank { "長官" }
+    /** 稱呼跟著目前的角色走(賈維斯 = Sir、武俠 = 少俠…),可分角色修改。 */
+    fun address(ctx: Context): String = Roles.address(ctx, tone(ctx))
 
-    fun setAddress(ctx: Context, value: String) {
-        prefs(ctx).edit().putString("address", value.trim()).apply()
+    fun setAddress(ctx: Context, value: String) = Roles.setAddress(ctx, tone(ctx), value)
+
+    /** 目前的助理角色代號(witty = 賈維斯)。舊版的其他代號一律當作賈維斯。 */
+    fun tone(ctx: Context): String {
+        val v = prefs(ctx).getString("tone", "witty") ?: "witty"
+        return if (Roles.ALL.any { it.code == v }) v else "witty"
     }
-
-    fun tone(ctx: Context): String = prefs(ctx).getString("tone", "witty") ?: "witty"
 
     fun setTone(ctx: Context, value: String) {
         prefs(ctx).edit().putString("tone", value).apply()
@@ -135,17 +137,13 @@ object AppSettings {
     fun ttsEngine(ctx: Context): String = prefs(ctx).getString("tts_engine", "") ?: ""
     fun setTtsEngine(ctx: Context, v: String) = prefs(ctx).edit().putString("tts_engine", v).apply()
 
-    /** 指定的朗讀聲音名稱,空字串 = 自動挑。 */
-    fun ttsVoice(ctx: Context): String = prefs(ctx).getString("tts_voice", "") ?: ""
-    fun setTtsVoice(ctx: Context, v: String) = prefs(ctx).edit().putString("tts_voice", v).apply()
-
-    /** 音調(1.0 = 自然,越低越低沉)。 */
-    fun ttsPitch(ctx: Context): Float = prefs(ctx).getFloat("tts_pitch", 1.0f)
-    fun setTtsPitch(ctx: Context, v: Float) = prefs(ctx).edit().putFloat("tts_pitch", v).apply()
-
-    /** 語速(1.0 = 正常)。 */
-    fun ttsRate(ctx: Context): Float = prefs(ctx).getFloat("tts_rate", 1.0f)
-    fun setTtsRate(ctx: Context, v: Float) = prefs(ctx).edit().putFloat("tts_rate", v).apply()
+    /** 目前角色的朗讀聲音、音調、語速(分角色保存)。聲音空字串 = 自動挑。 */
+    fun ttsVoice(ctx: Context): String = Roles.voice(ctx, tone(ctx))
+    fun setTtsVoice(ctx: Context, v: String) = Roles.setVoice(ctx, tone(ctx), v)
+    fun ttsPitch(ctx: Context): Float = Roles.pitch(ctx, tone(ctx))
+    fun setTtsPitch(ctx: Context, v: Float) = Roles.setPitch(ctx, tone(ctx), v)
+    fun ttsRate(ctx: Context): Float = Roles.rate(ctx, tone(ctx))
+    fun setTtsRate(ctx: Context, v: Float) = Roles.setRate(ctx, tone(ctx), v)
 
     fun alarmMode(ctx: Context): String = prefs(ctx).getString("alarm_mode", "voice") ?: "voice"
     fun setAlarmMode(ctx: Context, v: String) = prefs(ctx).edit().putString("alarm_mode", v).apply()

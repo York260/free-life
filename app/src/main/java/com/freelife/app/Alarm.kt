@@ -319,7 +319,12 @@ class AlarmService : Service() {
     // 用朗讀引擎把句子合成成 WAV(自己收集引擎吐出的聲音資料),再用「鬧鐘」音量播放並重複。
     // 不讓引擎自己播:三星引擎在背景直接念常常沒有聲音。合成不出來就換下一個引擎,全部不行才響鈴。
     private var synth: SpeechSynth? = null
-    private var speechText = ""
+    private var speechTexts: List<String> = emptyList()
+    private val levelReady = BooleanArray(3)
+    private var curLevel = -1
+    private var startLevel = 0
+    private var alertStart = 0L
+    private var goodEngine: String? = null
     private var speechPlayer: MediaPlayer? = null
     private var speechActive = false
     private var savedAlarmVol = -1
@@ -330,14 +335,42 @@ class AlarmService : Service() {
             startSound()
         }
     }
+
+    /** 每念完一次,停 2.5 秒再念;響越久語氣越急(溫和 → 變急 → 催促)。 */
     private val replaySpeech = Runnable {
-        speechPlayer?.let {
-            try {
-                it.seekTo(0)
-                it.start()
-            } catch (ignored: Exception) {
+        if (!speechActive) return@Runnable
+        val want = desiredLevel()
+        val lv = (want downTo maxOf(curLevel, 0)).firstOrNull { levelReady[it] } ?: curLevel
+        if (lv != curLevel && lv >= 0) {
+            playLevel(lv)
+        } else {
+            speechPlayer?.let {
+                try {
+                    it.seekTo(0)
+                    it.start()
+                } catch (ignored: Exception) {
+                }
             }
         }
+    }
+
+    private fun desiredLevel(): Int {
+        val elapsed = System.currentTimeMillis() - alertStart
+        val byTime = when {
+            elapsed >= Roles.LEVEL3_AFTER_MS -> 2
+            elapsed >= Roles.LEVEL2_AFTER_MS -> 1
+            else -> 0
+        }
+        return maxOf(startLevel, byTime)
+    }
+
+    /** 同一件事被延後又響,記得是第幾次:第二次直接從「變急」開始,第三次起「催促」。 */
+    private fun priorRings(r: Reminder): Int {
+        val p = getSharedPreferences("alarm_rings", Context.MODE_PRIVATE)
+        val key = "${r.id}_${r.start}"
+        val count = if (p.getString("key", "") == key) p.getInt("count", 0) + 1 else 1
+        p.edit().putString("key", key).putInt("count", count).apply()
+        return count - 1
     }
 
     /** 依設定:語音播報 / 鈴聲 / 鈴聲加語音。語音不能用時自動改回鈴聲。 */
@@ -353,7 +386,7 @@ class AlarmService : Service() {
         }
     }
 
-    private fun speechFile() = java.io.File(cacheDir, "alarm_speech.wav")
+    private fun levelFile(lv: Int) = java.io.File(cacheDir, "alarm_speech_$lv.wav")
 
     /** 鬧鐘音量太小(常見 1/15)就暫時調大,結束後還原。 */
     private fun boostAlarmVolume() {
@@ -386,8 +419,15 @@ class AlarmService : Service() {
     }
 
     private fun startSpeech(r: Reminder) {
-        speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        speechTexts = AlarmSpeech.lines(this, r, now)
+        startLevel = priorRings(r).coerceIn(0, 2)
+        alertStart = now
+        levelReady.fill(false)
+        curLevel = -1
+        goodEngine = null
         SpeechDiag.begin(this, "鬧鐘")
+        diag("角色:${Roles.active(this).label},從${Roles.LEVEL_NAMES[startLevel]}開始")
         speechActive = true
         handler.removeCallbacks(speechFallback)
         handler.postDelayed(speechFallback, 9000L)
@@ -405,13 +445,15 @@ class AlarmService : Service() {
         }
         val e = engines[i]
         val s = synth ?: SpeechSynth(this) { diag(it) }.also { synth = it }
-        s.synth(e, speechText, java.util.Locale.TAIWAN, speechFile(), 8000L) { res ->
+        s.synth(e, speechTexts[startLevel], java.util.Locale.TAIWAN, levelFile(startLevel), 8000L) { res ->
             if (!speechActive) return@synth
             diag("[${SpeechEngines.label(e)}] ${if (res.ok) "成功" else "失敗"},${res.note}(${res.ms}ms)")
             if (res.ok) {
                 if (e != null) AppSettings.setTtsEngine(this, e)
-                s.release()
-                playSpeechFile()
+                goodEngine = e
+                levelReady[startLevel] = true
+                playLevel(startLevel)
+                synthRest(startLevel + 1)
             } else if (attempt == 0) {
                 // 引擎偶爾剛被叫醒時會拒絕第一次,等一秒換新連線再試一次
                 s.release()
@@ -422,9 +464,24 @@ class AlarmService : Service() {
         }
     }
 
-    private fun playSpeechFile() {
+    /** 第一段在播的同時,背景把後面更急的台詞也先合成好。 */
+    private fun synthRest(lv: Int) {
+        if (!speechActive || lv > 2) {
+            synth?.release()
+            return
+        }
+        val s = synth ?: return
+        s.synth(goodEngine, speechTexts[lv], java.util.Locale.TAIWAN, levelFile(lv), 10_000L) { res ->
+            if (!speechActive) return@synth
+            if (res.ok) levelReady[lv] = true
+            diag("${Roles.LEVEL_NAMES[lv]}:${if (res.ok) "準備好了" else "合成失敗,沿用前一段"}")
+            synthRest(lv + 1)
+        }
+    }
+
+    private fun playLevel(lv: Int) {
         if (!speechActive) return
-        val f = speechFile()
+        val f = levelFile(lv)
         releaseSpeechPlayer()
         // 先前因為等太久而響起的鈴聲,在「語音播報」模式下換成語音
         if (AppSettings.alarmMode(this) == "voice") stopRingOnly()
@@ -438,14 +495,16 @@ class AlarmService : Service() {
             )
             mp.setDataSource(f.absolutePath)
             mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
-            val v = AppSettings.alarmVolume(this) / 100f
+            // 催促階段開到最大聲
+            val v = if (lv >= 2) 1f else AppSettings.alarmVolume(this) / 100f
             mp.setVolume(v, v)
             mp.setOnCompletionListener { handler.postDelayed(replaySpeech, 2500L) }
             mp.prepare()
             mp.start()
             speechPlayer = mp
+            curLevel = lv
             handler.removeCallbacks(speechFallback)
-            diag("用鬧鐘音量播放語音中")
+            diag("播放${Roles.LEVEL_NAMES[lv]}")
         } catch (e: Exception) {
             diag("播放語音失敗:${e.message},改響鈴聲")
             CrashLog.save(this, e)
@@ -840,68 +899,37 @@ class BootReceiver : BroadcastReceiver() {
     }
 }
 
-/** 鬧鐘要唸的那句話:「長官,十分鐘後開會,地點三樓會議室,到下午三點。」 */
+/** 鬧鐘要唸的話:依目前角色,三段台詞(溫和 → 變急 → 催促)。 */
 object AlarmSpeech {
-    fun text(ctx: Context, r: Reminder, nowMs: Long): String {
+    private fun whenText(r: Reminder, nowMs: Long): String {
         val zone = java.time.ZoneId.systemDefault()
         val start = java.time.Instant.ofEpochMilli(r.start).atZone(zone).toLocalDateTime()
         val mins = ((r.start - nowMs) / 60_000L).toInt()
-        val whenText = when {
+        return when {
             mins >= 1440 -> "明天${clock(start)}"
             mins >= 60 -> "${mins / 60}小時${if (mins % 60 > 0) "${mins % 60}分" else ""}後"
             mins >= 2 -> "${mins}分鐘後"
             mins <= -2 -> "已經開始了"
             else -> "現在"
         }
-        val addr = AppSettings.address(ctx)
-        val loc = r.location.trim()
-        val end = r.endAt?.let { clock(java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()) }
-        return say(AppSettings.tone(ctx), addr, whenText, r.title.trim(), loc, end)
     }
 
-    /** 依助理角色決定鬧鐘怎麼念。 */
-    fun say(role: String, addr: String, whenText: String, title: String, loc: String, end: String?): String {
-        val sb = StringBuilder()
-        when (role) {
-            "secretary" -> {
-                sb.append(addr).append("您好,").append(whenText).append("有「").append(title).append("」")
-                if (loc.isNotBlank()) sb.append(",地點在").append(loc)
-                if (end != null) sb.append(",預計到").append(end)
-                sb.append("。")
-            }
-            "concise" -> {
-                sb.append(whenText).append(",").append(title)
-                if (loc.isNotBlank()) sb.append(",").append(loc)
-                sb.append("。")
-            }
-            "warm" -> {
-                sb.append(addr).append(",提醒你一下,").append(whenText).append("是「").append(title).append("」")
-                if (loc.isNotBlank()) sb.append(",在").append(loc)
-                sb.append(",別忘了喔。")
-            }
-            "cheerful" -> {
-                sb.append(addr).append("!").append(whenText).append("「").append(title).append("」")
-                if (loc.isNotBlank()) sb.append(",地點").append(loc)
-                sb.append(",一起加油!")
-            }
-            "coach" -> {
-                sb.append(addr).append(",").append(whenText).append("「").append(title).append("」")
-                if (loc.isNotBlank()) sb.append(",地點").append(loc)
-                sb.append("。現在就動起來,不要拖。")
-            }
-            else -> {
-                sb.append(addr).append(",").append(whenText).append(",").append(title)
-                if (loc.isNotBlank()) sb.append(",地點").append(loc)
-                if (end != null) sb.append(",到").append(end)
-                sb.append("。")
-            }
-        }
-        return sb.toString()
+    /** 三段台詞,第 0 段最溫和。 */
+    fun lines(ctx: Context, r: Reminder, nowMs: Long): List<String> {
+        val zone = java.time.ZoneId.systemDefault()
+        val code = AppSettings.tone(ctx)
+        val addr = Roles.address(ctx, code)
+        val w = whenText(r, nowMs)
+        val end = r.endAt?.let { clock(java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()) }
+        return (0..2).map { lv -> Roles.fill(Roles.line(ctx, code, lv), addr, w, r.title.trim(), r.location.trim(), end) }
     }
+
+    /** 第一段(相容舊呼叫)。 */
+    fun text(ctx: Context, r: Reminder, nowMs: Long): String = lines(ctx, r, nowMs)[0]
 
     /** 設定頁試聽用的例句。 */
-    fun sample(ctx: Context): String =
-        say(AppSettings.tone(ctx), AppSettings.address(ctx), "10分鐘後", "開會", "三樓會議室", "下午三點")
+    fun sample(ctx: Context, level: Int = 0, code: String = AppSettings.tone(ctx)): String =
+        Roles.fill(Roles.line(ctx, code, level), Roles.address(ctx, code), "10分鐘後", "開會", "三樓會議室", "下午三點")
 
     /** 18:30 → 「晚上六點半」,唸起來比較自然。 */
     fun clock(t: java.time.LocalDateTime): String {

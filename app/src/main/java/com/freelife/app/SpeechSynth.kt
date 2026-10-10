@@ -366,7 +366,7 @@ object VoiceStyle {
     }
 
     /** 用目前的角色、聲音、音調、語速念一句例句(鬧鐘音量)。 */
-    fun preview(ctx: Context, onDone: (Boolean) -> Unit) {
+    fun preview(ctx: Context, level: Int = 0, onDone: (Boolean) -> Unit) {
         val app = ctx.applicationContext
         val synth = SpeechSynth(app) { SpeechDiag.add(app, it) }
         val out = File(app.cacheDir, "preview.wav")
@@ -377,7 +377,7 @@ object VoiceStyle {
                 onDone(false)
                 return
             }
-            synth.synth(engines[i], AlarmSpeech.sample(app), Locale.TAIWAN, out, 10_000L) { r ->
+            synth.synth(engines[i], AlarmSpeech.sample(app, level), Locale.TAIWAN, out, 10_000L) { r ->
                 if (r.ok) {
                     synth.release()
                     VoiceProbe.playWav(app, out) { onDone(it) }
