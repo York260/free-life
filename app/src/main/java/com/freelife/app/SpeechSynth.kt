@@ -261,6 +261,7 @@ class SpeechSynth(private val ctx: Context, private val log: (String) -> Unit) {
 
 /** 設定頁的「自動測試語音」:每個引擎都試,選出能念中文的,再用鬧鐘音量播給你聽。 */
 object VoiceProbe {
+    private val main = Handler(Looper.getMainLooper())
     private var running = false
     const val TEST_TEXT = "長官,這是語音測試,聽得到就代表成功。"
 
@@ -290,6 +291,17 @@ object VoiceProbe {
             onDone(ok)
         }
 
+        fun success(e: String?, tag: String) {
+            AppSettings.setTtsEngine(app, e ?: "")
+            log("結論:鬧鐘改用「$tag」引擎,並用鬧鐘音量播放。現在播放測試語音…")
+            synth.release()
+            playWav(app, out) { played ->
+                log(if (played) "播放完成。有聽到「長官,這是語音測試」就成功了。" else "播放失敗。")
+                running = false
+                onDone(true)
+            }
+        }
+
         fun step(i: Int) {
             if (i >= engines.size) {
                 log("結論:所有引擎都合成不出中文語音,鬧鐘會改響鈴聲。")
@@ -306,25 +318,44 @@ object VoiceProbe {
             synth.synth(e, TEST_TEXT, Locale.TAIWAN, out, 12_000L) { r ->
                 log("[$tag] 中文:${if (r.ok) "成功" else "失敗"},${r.note}(${r.ms}ms)")
                 if (r.ok) {
-                    AppSettings.setTtsEngine(app, e ?: "")
-                    log("結論:鬧鐘改用「$tag」引擎,並用鬧鐘音量播放。現在播放測試語音…")
-                    synth.release()
-                    playWav(app, out) { played ->
-                        log(if (played) "播放完成。有聽到「長官,這是語音測試」就成功了。" else "播放失敗。")
-                        running = false
-                        onDone(true)
-                    }
+                    success(e, tag)
                 } else {
                     // 英文也試一次:英文可以、中文不行 = 中文語音沒下載
                     synth.synth(e, "This is a voice test.", Locale.US, out, 10_000L) { r2 ->
                         log("[$tag] 英文:${if (r2.ok) "成功" else "失敗"},${r2.note}")
-                        if (r2.ok) log("[$tag] 判斷:引擎正常,但中文語音可能沒下載。")
-                        step(i + 1)
+                        if (!r2.ok) {
+                            step(i + 1)
+                            return@synth
+                        }
+                        // 引擎正常、中文不行:通常是中文語音正在背景下載,等一下再試
+                        log("[$tag] 判斷:引擎正常,中文語音可能正在下載,25 秒後再試…")
+                        main.postDelayed({
+                            synth.synth(e, TEST_TEXT, Locale.TAIWAN, out, 15_000L) { r3 ->
+                                log("[$tag] 中文第二次:${if (r3.ok) "成功" else "失敗"},${r3.note}")
+                                if (r3.ok) success(e, tag) else step(i + 1)
+                            }
+                        }, 25_000L)
                     }
                 }
             }
         }
         step(0)
+    }
+
+    /** 打開手機的「文字轉語音」設定(換引擎、下載語音)。 */
+    fun openTtsSettings(ctx: Context) {
+        val tries = listOf(
+            Intent("com.android.settings.TTS_SETTINGS"),
+            Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).setPackage(SpeechEngines.GOOGLE),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        for (i in tries) {
+            try {
+                ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (ignored: Exception) {
+            }
+        }
     }
 
     /** 用鬧鐘音量播放 WAV;鬧鐘音量太小就暫時調到七成,播完還原。 */

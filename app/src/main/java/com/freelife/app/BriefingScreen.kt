@@ -532,6 +532,7 @@ fun SettingsScreen(
                     android.widget.Toast.makeText(ctx, "8 秒後響,請把手機放著等", android.widget.Toast.LENGTH_LONG).show()
                 }) { Text("8 秒後試響") }
             }
+            TextButton(onClick = { VoiceProbe.openTtsSettings(ctx) }) { Text("打開文字轉語音設定(換引擎、下載中文語音)") }
             Text(diagText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = "鈴聲:$soundName",
