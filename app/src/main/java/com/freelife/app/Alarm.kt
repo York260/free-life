@@ -353,6 +353,37 @@ class AlarmService : Service() {
     private fun speechFile() = java.io.File(cacheDir, "alarm_speech.wav")
 
     private var liveMode = false
+    private val liveAgain = Runnable { speakLive() }
+    private var speechActive = false
+    private var savedMusicVol = -1
+
+    /** 三星朗讀引擎常走「媒體音量」,響鬧鐘時暫時調高,結束後還原。 */
+    private fun boostMusicVolume() {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            val want = (max * AppSettings.alarmVolume(this) / 100f).toInt().coerceAtLeast((max * 0.6f).toInt())
+            diag("媒體音量=$cur/$max 鬧鐘音量=${am.getStreamVolume(android.media.AudioManager.STREAM_ALARM)}/${am.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)} 響鈴模式=${am.ringerMode}")
+            if (cur < want) {
+                if (savedMusicVol < 0) savedMusicVol = cur
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, want, 0)
+                diag("媒體音量調到 $want")
+            }
+        } catch (e: Exception) {
+            diag("調音量失敗:${e.message}")
+        }
+    }
+
+    private fun restoreMusicVolume() {
+        if (savedMusicVol < 0) return
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, savedMusicVol, 0)
+        } catch (ignored: Exception) {
+        }
+        savedMusicVol = -1
+    }
 
     private fun diag(msg: String) {
         SpeechDiag.add(this, msg)
@@ -361,6 +392,7 @@ class AlarmService : Service() {
     private fun startSpeech(r: Reminder) {
         speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
         SpeechDiag.begin(this)
+        speechActive = true
         liveMode = false
         handler.removeCallbacks(speechFallback)
         handler.postDelayed(speechFallback, 9000L)
@@ -400,8 +432,9 @@ class AlarmService : Service() {
                 }
 
                 override fun onDone(utteranceId: String?) {
+                    if (!speechActive) return
                     if (utteranceId == "alarm_live") {
-                        handler.post { handler.postDelayed({ speakLive() }, 2500L) }
+                        handler.post { handler.postDelayed(liveAgain, 2500L) }
                     } else {
                         diag("轉檔完成")
                         handler.post { playSpeechFile() }
@@ -414,6 +447,7 @@ class AlarmService : Service() {
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
+                    if (!speechActive) return
                     diag("朗讀錯誤 id=$utteranceId code=$errorCode")
                     handler.post { if (utteranceId == "alarm_live") { if (player == null) startSound() } else speakLive() }
                 }
@@ -435,7 +469,9 @@ class AlarmService : Service() {
     private fun speakLive() {
         val t = tts ?: run { if (player == null) startSound(); return }
         if (speechPlayer != null) return
+        if (!speechActive) return
         liveMode = true
+        boostMusicVolume()
         val b = android.os.Bundle()
         b.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
         val rc = t.speak(speechText, TextToSpeech.QUEUE_FLUSH, b, "alarm_live")
@@ -483,6 +519,9 @@ class AlarmService : Service() {
     }
 
     private fun stopSpeech() {
+        speechActive = false
+        handler.removeCallbacks(liveAgain)
+        restoreMusicVolume()
         handler.removeCallbacks(speechFallback)
         releaseSpeechPlayer()
         try {
