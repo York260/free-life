@@ -188,24 +188,27 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             TextButton(onClick = { step(-1) }) { Text("‹", fontSize = 22.sp) }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.clickable {
-                    anchor = today
-                    selected = today
-                },
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!atToday) {
-                    TextButton(onClick = {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable {
                         anchor = today
                         selected = today
-                    }) { Text("回到今天") }
+                    },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!atToday) {
+                    Text("點這裡回到今天", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
-                TextButton(onClick = { step(1) }) { Text("›", fontSize = 22.sp) }
             }
+            TextButton(onClick = { step(1) }) { Text("›", fontSize = 22.sp) }
         }
 
         val scroll = rememberScrollState()

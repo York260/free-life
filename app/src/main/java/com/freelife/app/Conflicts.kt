@@ -19,26 +19,42 @@ object Conflicts {
         val s = r.start
         val e = r.endAt
         if (e == null && r.triggerAt == null) return emptyList()
-        return all.filter { o ->
-            if (o.done || o.id == r.id) return@filter false
-            val oe = o.endAt
-            val os = o.start
+        // 重複的排程(例如每週的課)要展開成那幾天實際的時段來比
+        return spans(all.filter { !it.done && it.id != r.id }, s, e ?: s).filter { (o, os, oe) ->
             if (oe != null) {
                 if (e != null) s < oe && os < e else s >= os && s < oe
             } else {
-                // 別人是單點提醒:只有 r 有結束時間時,才看它有沒有落在 r 裡面
                 e != null && o.triggerAt != null && os >= s && os < e
             }
-        }.sortedBy { it.start }
+        }.map { it.first }.distinctBy { it.id }.sortedBy { it.start }
     }
 
-    /** 此刻正在進行、而且不是 r 本身的排程(視為開會中);超過 8 小時的不算。 */
+    /** 此刻正在進行、而且不是 r 本身的排程(視為開會中,課表的課也算);超過 8 小時的不算。 */
     fun inProgress(all: List<Reminder>, r: Reminder, nowMs: Long): Reminder? =
-        all.filter { o ->
-            val oe = o.endAt
-            !o.done && o.id != r.id && oe != null &&
-                o.start <= nowMs && nowMs < oe && (oe - o.start) <= MAX_MEETING_MS
-        }.minByOrNull { it.endAt ?: Long.MAX_VALUE }
+        spans(all.filter { !it.done && it.id != r.id }, nowMs, nowMs)
+            .filter { (_, os, oe) -> oe != null && os <= nowMs && nowMs < oe && (oe - os) <= MAX_MEETING_MS }
+            .minByOrNull { it.third ?: Long.MAX_VALUE }?.first
+
+    /** 提醒響的時候正在上課:回傳那堂課和它當天的上下課時間。 */
+    fun classAt(all: List<Reminder>, r: Reminder): Triple<Reminder, Long, Long>? {
+        if (r.tag == TIMETABLE_TAG || r.ringless) return null
+        val t = r.triggerAt ?: return null
+        return spans(all.filter { it.tag == TIMETABLE_TAG && !it.done && it.id != r.id }, t, t)
+            .firstOrNull { (_, os, oe) -> oe != null && t >= os && t < oe }
+            ?.let { Triple(it.first, it.second, it.third!!) }
+    }
+
+    /** 把 from..to 前後一天內的行程展開成 (行程, 開始, 結束)。 */
+    private fun spans(list: List<Reminder>, fromMs: Long, toMs: Long): List<Triple<Reminder, Long, Long?>> {
+        val zone = java.time.ZoneId.systemDefault()
+        val d0 = java.time.Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate().minusDays(1)
+        val d1 = java.time.Instant.ofEpochMilli(toMs).atZone(zone).toLocalDate().plusDays(2)
+        val single = list.filter { it.repeat.isEmpty() }.map { Triple(it, it.start, it.endAt) }
+        val repeated = ScheduleModel.occurrences(list.filter { it.repeat.isNotEmpty() }, d0, d1).map { o ->
+            Triple(o.r, o.start.atZone(zone).toInstant().toEpochMilli(), o.end?.atZone(zone)?.toInstant()?.toEpochMilli())
+        }
+        return single + repeated
+    }
 
     private fun filter(ctx: Context): Int {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

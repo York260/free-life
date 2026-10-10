@@ -240,6 +240,31 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (showBar) BottomBar(screen) { screen = it }
+                        classWarn?.let { (r, hit) ->
+                            val (cls, cs, ce) = hit
+                            val hm = { ms: Long -> java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).toLocalTime().toString().take(5) }
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { classWarn = null },
+                                title = { androidx.compose.material3.Text("上課時間會響") },
+                                text = {
+                                    androidx.compose.material3.Text(
+                                        "「${r.title}」的提醒時間 ${hm(r.triggerAt ?: r.start)} 正在上「${cls.title}」(${hm(cs)}–${hm(ce)})。" +
+                                            "上課視同開會,響鈴可能打擾。要改到下課後再提醒嗎?",
+                                    )
+                                },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(onClick = {
+                                        classWarn = null
+                                        updateReminder(r.copy(triggerAt = ce))
+                                    }) { androidx.compose.material3.Text("改到下課 ${hm(ce)}") }
+                                },
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(onClick = { classWarn = null }) {
+                                        androidx.compose.material3.Text("照原時間")
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -359,6 +384,7 @@ class MainActivity : ComponentActivity() {
         AlarmScheduler.schedule(this, r)
         refreshReminders()
         refreshPermissions()
+        checkClass(r)
     }
 
     private fun updateReminder(r: Reminder) {
@@ -367,6 +393,15 @@ class MainActivity : ComponentActivity() {
         AlarmScheduler.schedule(this, r)
         refreshReminders()
         refreshPermissions()
+        checkClass(r)
+    }
+
+    /** 上課視同開會:提醒會在上課中響,就跳出警告。 */
+    private var classWarn by mutableStateOf<Pair<Reminder, Triple<Reminder, Long, Long>>?>(null)
+
+    private fun checkClass(r: Reminder) {
+        val hit = Conflicts.classAt(ReminderStore.load(this), r) ?: return
+        classWarn = r to hit
     }
 
     private fun toggleDone(r: Reminder) {

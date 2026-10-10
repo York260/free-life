@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -344,7 +345,10 @@ fun WeekView(
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.width(44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.widthIn(min = 52.dp).padding(end = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
                         text = WEEKDAY_CHARS[i],
                         style = MaterialTheme.typography.titleMedium,
@@ -355,6 +359,8 @@ fun WeekView(
                         text = "${day.monthValue}/${day.dayOfMonth}",
                         style = MaterialTheme.typography.labelSmall,
                         color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
                     )
                     Holidays.shortName(day)?.let {
                         Text(it, style = MaterialTheme.typography.labelSmall, color = HOLIDAY_RED, maxLines = 1)

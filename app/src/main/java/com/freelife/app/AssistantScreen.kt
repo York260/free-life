@@ -430,11 +430,24 @@ fun AssistantScreen(
                 }
             }
         }
+        // 輸入框一整行,按鈕放下面一行,字大也不擠
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            placeholder = { Text("例如:明天下午3點開會") },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = { send(input) }),
+            maxLines = 3,
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp),
+                .padding(top = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box {
                 OutlinedButton(
@@ -461,21 +474,13 @@ fun AssistantScreen(
                     })
                 }
             }
-            Spacer(Modifier.padding(start = 6.dp))
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("例如:明天下午3點開會") },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { send(input) }),
-                maxLines = 3,
-            )
-            Spacer(Modifier.padding(start = 8.dp))
-            OutlinedButton(onClick = { startListening() }) {
+            OutlinedButton(
+                onClick = { startListening() },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
+            ) {
                 AppIcon(Glyph.MIC, MaterialTheme.colorScheme.primary, 20.dp)
             }
-            Spacer(Modifier.padding(start = 4.dp))
+            Spacer(Modifier.weight(1f))
             Button(onClick = { send(input) }, enabled = !busy) { Text("送出") }
         }
     }
