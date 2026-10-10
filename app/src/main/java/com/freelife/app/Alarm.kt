@@ -495,9 +495,17 @@ class AlarmService : Service() {
             )
             mp.setDataSource(f.absolutePath)
             mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
-            // 催促階段開到最大聲
+            // 催促階段開到最大聲;第一次開始念時,若設定了「漸強」就從小聲慢慢變大(和鈴聲一樣 20 秒)
             val v = if (lv >= 2) 1f else AppSettings.alarmVolume(this) / 100f
-            mp.setVolume(v, v)
+            val fadeIn = curLevel < 0 && lv < 2 && AppSettings.alarmFade(this)
+            mp.setVolume(if (fadeIn) v * 0.15f else v, if (fadeIn) v * 0.15f else v)
+            if (fadeIn) {
+                speechFadeStep = 0
+                handler.removeCallbacks(speechFade)
+                handler.postDelayed(speechFade, 1000L)
+            } else {
+                handler.removeCallbacks(speechFade)
+            }
             mp.setOnCompletionListener { handler.postDelayed(replaySpeech, 2500L) }
             mp.prepare()
             mp.start()
@@ -536,6 +544,7 @@ class AlarmService : Service() {
 
     private fun stopSpeech() {
         speechActive = false
+        handler.removeCallbacks(speechFade)
         handler.removeCallbacks(speechFallback)
         releaseSpeechPlayer()
         synth?.release()
@@ -580,6 +589,22 @@ class AlarmService : Service() {
             }
         }
         if (lastError != null) CrashLog.save(this, lastError)
+    }
+
+    private var speechFadeStep = 0
+    private val speechFade = object : Runnable {
+        override fun run() {
+            val mp = speechPlayer ?: return
+            if (curLevel >= 2) return
+            speechFadeStep++
+            val target = AppSettings.alarmVolume(this@AlarmService) / 100f
+            val v = target * (0.15f + 0.85f * (speechFadeStep / 20f)).coerceAtMost(1f)
+            try {
+                mp.setVolume(v, v)
+            } catch (ignored: Exception) {
+            }
+            if (speechFadeStep < 20) handler.postDelayed(this, 1000L)
+        }
     }
 
     private var fadeStep = 0

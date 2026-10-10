@@ -23,14 +23,16 @@ sealed class Outcome {
 
 /** 把使用者輸入變成提醒;缺資訊(上午下午、幾點、地點)時追問。 */
 object Assistant {
+    /** 按了會跳出輸入框,自己填提前多久 / 持續多久。 */
+    const val CUSTOM_CHIP = "自訂…"
     private val TIME_CHIPS = listOf("早上8點", "中午12點", "下午3點", "晚上7點")
     private val SKIP_WORDS = setOf("略過", "跳過", "不用", "沒有", "無", "不必", "skip")
     private val START_CHIPS = listOf("現在", "1小時後", "今天晚上7點", "明天早上8點", "略過")
     private val REPEAT_CHIPS = listOf("不重複", "每天", "平日", "每週", "每月")
-    private val LEAD_CHIPS = listOf("準時響鈴", "提前10分鐘", "提前30分鐘", "提前1小時", "提前1天", "不提醒")
+    private val LEAD_CHIPS = listOf("準時響鈴", "提前10分鐘", "提前30分鐘", "提前1小時", "提前1天", "不提醒", CUSTOM_CHIP)
     private val NO_WORDS = Regex("^(不用|不要|不必|不|沒有|無|略過|跳過|否|no)")
     private val DAY_LEAD_RE = Regex("(\\d+|[一二兩三])\\s*天")
-    private val END_CHIPS = listOf("30分鐘", "1小時", "2小時", "沒有結束時間")
+    private val END_CHIPS = listOf("30分鐘", "1小時", "2小時", "沒有結束時間", CUSTOM_CHIP)
     private val NOW_WORDS = setOf("現在", "馬上", "立刻", "立即", "now")
     private val NO_END_WORDS = SKIP_WORDS + setOf("沒有結束時間", "沒有結束", "不知道", "不確定", "未定")
     private val PM_RE = Regex("下午|晚|午後|PM|pm")

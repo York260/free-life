@@ -48,7 +48,66 @@ class VoiceWidget : AppWidgetProvider() {
         for (id in ids) manager.updateAppWidget(id, build(context))
     }
 
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_PICK) {
+            pick(context, intent.getIntExtra("zone", 0))
+            refresh(context)
+            return
+        }
+        super.onReceive(context, intent)
+    }
+
     companion object {
+        const val ACTION_PICK = "com.freelife.app.WIDGET_PICK"
+        private const val ZONES = 16
+        private val ZONE_IDS = intArrayOf(
+            R.id.widget_z0, R.id.widget_z1, R.id.widget_z2, R.id.widget_z3,
+            R.id.widget_z4, R.id.widget_z5, R.id.widget_z6, R.id.widget_z7,
+            R.id.widget_z8, R.id.widget_z9, R.id.widget_z10, R.id.widget_z11,
+            R.id.widget_z12, R.id.widget_z13, R.id.widget_z14, R.id.widget_z15,
+        )
+
+        private fun todayTimed(ctx: Context): List<Occ> {
+            val today = LocalDate.now()
+            return ScheduleModel.occurrences(ReminderStore.load(ctx), today, today.plusDays(1))
+                .filter { it.r.hasTime }
+                .sortedBy { it.start }
+        }
+
+        /** 點色條的第 zone 格:找那段時間的行程,存成一行簡述(和 App 裡點色條一樣)。 */
+        private fun pick(ctx: Context, zone: Int) {
+            val p = ctx.getSharedPreferences("widget", Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            // 同一格兩分鐘內再點一次 = 收起來
+            if (p.getInt("pick_zone", -1) == zone && now - p.getLong("pick_at", 0L) < 120_000L) {
+                p.edit().remove("pick_text").putInt("pick_zone", -1).apply()
+                return
+            }
+            val items = todayTimed(ctx)
+            val (from, span) = trackRange(items)
+            val z0 = from + span * zone / ZONES
+            val z1 = from + span * (zone + 1) / ZONES
+            val mid = (z0 + z1) / 2
+            fun m(t: java.time.LocalTime) = t.hour * 60 + t.minute
+            fun endMin(o: Occ): Int {
+                val s = m(o.start.toLocalTime())
+                return o.end?.let { if (it.toLocalDate() != o.date) 24 * 60 else m(it.toLocalTime()) } ?: (s + 30)
+            }
+            val hit = items.filter { m(it.start.toLocalTime()) < z1 && endMin(it) > z0 }
+                .minByOrNull { kotlin.math.abs(m(it.start.toLocalTime()) - mid) }
+                ?: items.minByOrNull { kotlin.math.abs(m(it.start.toLocalTime()) - mid) }
+                    ?.takeIf { kotlin.math.abs(m(it.start.toLocalTime()) - mid) <= 40 }
+            val text = if (hit == null) {
+                "%02d:%02d–%02d:%02d 這段時間沒有行程".format(z0 / 60, z0 % 60, z1 / 60, z1 % 60)
+            } else {
+                val t = hit.start.toLocalTime().toString().take(5) +
+                    (hit.end?.takeIf { it.toLocalDate() == hit.date }?.let { "–" + it.toLocalTime().toString().take(5) } ?: "")
+                val loc = if (hit.r.location.isBlank()) "" else " @${hit.r.location}"
+                "$t ${hit.r.title}$loc" + if (hit.r.done) "(已完成)" else ""
+            }
+            p.edit().putString("pick_text", text).putInt("pick_zone", zone).putLong("pick_at", now).apply()
+        }
+
         fun build(ctx: Context): RemoteViews {
             val v = RemoteViews(ctx.packageName, R.layout.widget_voice)
             val open = PendingIntent.getActivity(
@@ -65,6 +124,16 @@ class VoiceWidget : AppWidgetProvider() {
             v.setOnClickPendingIntent(R.id.widget_root, open)
             v.setOnClickPendingIntent(R.id.widget_type, type)
             v.setOnClickPendingIntent(R.id.widget_mic, VoiceEntry.pending(ctx))
+            for (i in 0 until ZONES) {
+                v.setOnClickPendingIntent(
+                    ZONE_IDS[i],
+                    PendingIntent.getBroadcast(
+                        ctx, 7100 + i,
+                        Intent(ctx, VoiceWidget::class.java).setAction(ACTION_PICK).putExtra("zone", i),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                )
+            }
             try {
                 fill(ctx, v)
             } catch (e: Exception) {
@@ -106,6 +175,15 @@ class VoiceWidget : AppWidgetProvider() {
                 v.setTextViewText(R.id.widget_next, day + upcoming.start.toLocalTime().toString().take(5) + "  " + upcoming.r.title)
             }
             v.setImageViewBitmap(R.id.widget_strip, stripBitmap(todayItems, LocalDateTime.now()))
+            val p = ctx.getSharedPreferences("widget", Context.MODE_PRIVATE)
+            val pickText = p.getString("pick_text", null)
+            val fresh = nowMs - p.getLong("pick_at", 0L) < 120_000L
+            if (pickText != null && fresh) {
+                v.setTextViewText(R.id.widget_pick, pickText)
+                v.setViewVisibility(R.id.widget_pick, android.view.View.VISIBLE)
+            } else {
+                v.setViewVisibility(R.id.widget_pick, android.view.View.GONE)
+            }
         }
 
         private fun stripBitmap(items: List<Occ>, now: LocalDateTime): Bitmap {

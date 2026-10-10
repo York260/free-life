@@ -113,6 +113,7 @@ fun AssistantScreen(
     var alts by remember { mutableStateOf<List<String>>(emptyList()) }
     val listState = rememberLazyListState()
     val speaker = remember { Speaker(ctx) }
+    var customLead by remember { mutableStateOf<Boolean?>(null) }
     // 麥克風回傳時要呼叫 send,但 send 在後面才定義,用一個容器接起來
     val sendHolder = remember { arrayOfNulls<(String) -> Unit>(1) }
     // 分享進來的內容:規則解析的結果也先給你確認,不直接入庫
@@ -378,6 +379,12 @@ fun AssistantScreen(
                 Text("內建規則", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+        customLead?.let { lead ->
+            CustomAmountDialog(lead, onDismiss = { customLead = null }) { text ->
+                customLead = null
+                send(text)
+            }
+        }
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -390,7 +397,9 @@ fun AssistantScreen(
                     item = item,
                     isLast = idx == items.lastIndex,
                     showChips = pendingAsk != null && idx == items.lastIndex,
-                    onChip = { send(it) },
+                    onChip = { c ->
+                        if (c == Assistant.CUSTOM_CHIP) customLead = item.chips.contains("不提醒") else send(c)
+                    },
                     onUndo = {
                         item.created.forEach { onDelete(it) }
                         items[idx] = item.copy(undone = true)
@@ -600,4 +609,63 @@ private fun ProposalView(p: Proposal, resolved: String, onConfirm: (Boolean) -> 
             }
         }
     }
+}
+
+
+/**
+ * 「自訂…」:lead = true 填提前多久(分鐘/小時/天);false 填持續多久(分鐘/小時)或直接選結束時刻。
+ * 結果轉成內建規則看得懂的文字送出,例如「提前45分鐘」「90分鐘」「下午5:20」。
+ */
+@Composable
+private fun CustomAmountDialog(lead: Boolean, onDismiss: () -> Unit, onDone: (String) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var num by remember { mutableStateOf("") }
+    val units = if (lead) listOf("分鐘", "小時", "天") else listOf("分鐘", "小時")
+    var unit by remember { mutableStateOf(units[0]) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (lead) "提前多久提醒?" else "持續多久?") },
+        text = {
+            androidx.compose.foundation.layout.Column {
+                OutlinedTextField(
+                    value = num,
+                    onValueChange = { v -> num = v.filter { it.isDigit() }.take(4) },
+                    label = { Text("數字") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                )
+                Chips(units.map { it to it }, unit) { unit = it }
+                if (!lead) {
+                    androidx.compose.material3.TextButton(onClick = {
+                        android.app.TimePickerDialog(ctx, { _, h, m ->
+                            val period = when (h) {
+                                in 0..4 -> "凌晨"
+                                in 5..11 -> "上午"
+                                12 -> "中午"
+                                in 13..17 -> "下午"
+                                else -> "晚上"
+                            }
+                            val h12 = if (h % 12 == 0) 12 else h % 12
+                            onDone("$period$h12:${"%02d".format(m)}")
+                        }, 17, 0, true).show()
+                    }) { Text("改成選結束時刻") }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = (num.toIntOrNull() ?: 0) > 0,
+                onClick = {
+                    val n = num.toIntOrNull() ?: return@TextButton
+                    val text = when (unit) {
+                        "天" -> "提前${n}天"
+                        "小時" -> if (lead) "提前${n * 60}分鐘" else "${n * 60}分鐘"
+                        else -> if (lead) "提前${n}分鐘" else "${n}分鐘"
+                    }
+                    onDone(text)
+                },
+            ) { Text("確定") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }

@@ -504,37 +504,14 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            var diagText by remember { mutableStateOf(SpeechDiag.load(ctx)) }
-            var engineName by remember { mutableStateOf(AppSettings.ttsEngine(ctx)) }
-            var probing by remember { mutableStateOf(false) }
-            DisposableEffect(Unit) {
-                SpeechDiag.listener = {
-                    diagText = SpeechDiag.load(ctx)
-                    engineName = AppSettings.ttsEngine(ctx)
-                }
-                onDispose { SpeechDiag.listener = null }
-            }
-            Text(
-                "朗讀引擎:" + if (engineName.isBlank()) "還沒測試" else SpeechEngines.label(engineName),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
-                Button(
-                    enabled = !probing,
-                    onClick = {
-                        probing = true
-                        VoiceProbe.run(ctx) { probing = false }
-                    },
-                ) { Text(if (probing) "測試中…" else "自動測試語音") }
-                OutlinedButton(onClick = {
+            OutlinedButton(
+                onClick = {
                     val at = System.currentTimeMillis() + 8_000L
                     ReminderOps.add(ctx, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
                     android.widget.Toast.makeText(ctx, "8 秒後響,請把手機放著等", android.widget.Toast.LENGTH_LONG).show()
-                }) { Text("8 秒後試響") }
-            }
-            TextButton(onClick = { VoiceProbe.openTtsSettings(ctx) }) { Text("打開文字轉語音設定(換引擎、下載中文語音)") }
-            Text(diagText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                },
+                modifier = Modifier.padding(top = 6.dp),
+            ) { Text("8 秒後試響") }
             Text(
                 text = "鈴聲:$soundName",
                 style = MaterialTheme.typography.bodyMedium,
@@ -602,7 +579,7 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "漸強(從小聲慢慢變大)",
+                    text = "漸強(鈴聲和語音都從小聲慢慢變大)",
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
                 Switch(checked = fade, onCheckedChange = {
@@ -852,7 +829,7 @@ private fun RoleEditor(code: String, onReset: () -> Unit) {
     when {
         vlist == null -> Text("讀取可用的聲音…", style = MaterialTheme.typography.bodySmall)
         vlist.isEmpty() -> Text(
-            "找不到已下載的中文聲音。可以到「鬧鐘響法」按「打開文字轉語音設定」下載更多聲音。",
+            "找不到已下載的中文聲音。可以到手機的「設定 → 文字轉語音」下載更多聲音。",
             style = MaterialTheme.typography.bodySmall,
         )
         else -> Chips(listOf("" to "自動") + vlist.map { it.name to VoiceStyle.label(it) }, voiceName) {
