@@ -109,7 +109,7 @@ jobs:
             adb shell settings get secure tts_default_synth || true
             adb logcat -c
             adb shell am start -n com.freelife.app/.MainActivity --ez probe true
-            sleep 75
+            sleep 100
             adb logcat -d -v raw -s FreeLifeProbe:I > probe.log || true
             adb shell am force-stop com.freelife.app
             adb logcat -c
