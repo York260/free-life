@@ -504,13 +504,33 @@ fun SettingsScreen(
                 )
             }
             var diagText by remember { mutableStateOf(SpeechDiag.load(ctx)) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            var engineName by remember { mutableStateOf(AppSettings.ttsEngine(ctx)) }
+            var probing by remember { mutableStateOf(false) }
+            DisposableEffect(Unit) {
+                SpeechDiag.listener = {
+                    diagText = SpeechDiag.load(ctx)
+                    engineName = AppSettings.ttsEngine(ctx)
+                }
+                onDispose { SpeechDiag.listener = null }
+            }
+            Text(
+                "朗讀引擎:" + if (engineName.isBlank()) "還沒測試" else SpeechEngines.label(engineName),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                Button(
+                    enabled = !probing,
+                    onClick = {
+                        probing = true
+                        VoiceProbe.run(ctx) { probing = false }
+                    },
+                ) { Text(if (probing) "測試中…" else "自動測試語音") }
                 OutlinedButton(onClick = {
                     val at = System.currentTimeMillis() + 8_000L
                     ReminderOps.add(ctx, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
                     android.widget.Toast.makeText(ctx, "8 秒後響,請把手機放著等", android.widget.Toast.LENGTH_LONG).show()
-                }) { Text("8 秒後試響一次") }
-                OutlinedButton(onClick = { diagText = SpeechDiag.load(ctx) }) { Text("看結果") }
+                }) { Text("8 秒後試響") }
             }
             Text(diagText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(

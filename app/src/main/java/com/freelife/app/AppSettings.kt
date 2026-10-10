@@ -131,6 +131,10 @@ object AppSettings {
     fun setSleepMinutes(ctx: Context, v: Int) = putI(ctx, "sleep_min", v)
 
     /** 鬧鐘響法:voice 語音播報(預設)、ring 鈴聲、both 鈴聲加語音。 */
+    /** 自動測試或鬧鐘成功念出聲音的朗讀引擎(套件名稱),空字串 = 還沒測過。 */
+    fun ttsEngine(ctx: Context): String = prefs(ctx).getString("tts_engine", "") ?: ""
+    fun setTtsEngine(ctx: Context, v: String) = prefs(ctx).edit().putString("tts_engine", v).apply()
+
     fun alarmMode(ctx: Context): String = prefs(ctx).getString("alarm_mode", "voice") ?: "voice"
     fun setAlarmMode(ctx: Context, v: String) = prefs(ctx).edit().putString("alarm_mode", v).apply()
 

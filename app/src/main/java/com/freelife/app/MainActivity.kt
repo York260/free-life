@@ -119,6 +119,12 @@ class MainActivity : ComponentActivity() {
         DailyJobs.schedule(this)
         reviewRequested = intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)
         if (savedInstanceState == null) readShare(intent)
+        // 雲端模擬器自動測試用:adb shell am start ... --ez probe true
+        if (savedInstanceState == null && intent.getBooleanExtra("probe", false)) VoiceProbe.run(this)
+        if (savedInstanceState == null && intent.getBooleanExtra("probeAlarm", false)) {
+            val at = System.currentTimeMillis() + 8_000L
+            ReminderOps.add(this, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
+        }
 
         setContent {
             FreeLifeTheme {

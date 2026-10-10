@@ -78,3 +78,53 @@ jobs:
             gh release edit latest --draft=false || true
           done
           echo "release still not published" && exit 1
+
+  # 在雲端 Android 模擬器上自動跑「語音自動測試」和一次真的鬧鐘,結果變成註記方便遠端讀取
+  probe:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FreeLife-apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run voice probe on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis_playstore
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -no-snapshot
+          script: |
+            adb install -r app-debug.apk
+            adb shell pm list packages | grep -i tts || true
+            adb shell settings get secure tts_default_synth || true
+            adb logcat -c
+            adb shell am start -n com.freelife.app/.MainActivity --ez probe true
+            sleep 75
+            adb logcat -d -v raw -s FreeLifeProbe:I > probe.log || true
+            adb shell am force-stop com.freelife.app
+            adb logcat -c
+            adb shell am start -n com.freelife.app/.MainActivity --ez probeAlarm true
+            sleep 5
+            adb shell input keyevent KEYCODE_HOME
+            sleep 40
+            adb logcat -d -v raw -s FreeLifeProbe:I > alarm.log || true
+            adb logcat -d -v brief AndroidRuntime:E '*:S' > crash.log || true
+
+      - name: Report
+        if: always()
+        run: |
+          for f in probe.log alarm.log crash.log; do
+            echo "== $f"; cat $f 2>/dev/null || true
+            msg=$(cat $f 2>/dev/null | head -60 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::notice title=$f::${msg:-empty}"
+          done

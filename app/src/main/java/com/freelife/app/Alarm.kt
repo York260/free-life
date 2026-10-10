@@ -316,15 +316,17 @@ class AlarmService : Service() {
     }
 
     // ── 語音播報 ──
-    // 先用手機內建朗讀把句子「錄」成音檔,再用鬧鐘音量播放並重複。
-    // 直接 speak() 時,有些手機的朗讀引擎會走媒體音量(常常是 0),所以會只有震動沒有聲音。
-    private var tts: TextToSpeech? = null
+    // 用朗讀引擎把句子合成成 WAV(自己收集引擎吐出的聲音資料),再用「鬧鐘」音量播放並重複。
+    // 不讓引擎自己播:三星引擎在背景直接念常常沒有聲音。合成不出來就換下一個引擎,全部不行才響鈴。
+    private var synth: SpeechSynth? = null
     private var speechText = ""
     private var speechPlayer: MediaPlayer? = null
+    private var speechActive = false
+    private var savedAlarmVol = -1
     private val speechFallback = Runnable {
-        // 6 秒內沒播出語音:改用鈴聲,絕不讓鬧鐘無聲
-        if (speechPlayer == null && player == null) {
-            diag("9 秒內沒有聲音,改響鈴聲")
+        // 9 秒內還沒合成好:先響鈴聲,絕不讓鬧鐘無聲;之後語音好了會換成語音
+        if (speechActive && speechPlayer == null && player == null) {
+            diag("9 秒內還沒合成好,先響鈴聲")
             startSound()
         }
     }
@@ -340,7 +342,7 @@ class AlarmService : Service() {
 
     /** 依設定:語音播報 / 鈴聲 / 鈴聲加語音。語音不能用時自動改回鈴聲。 */
     private fun startAlert(r: Reminder) {
-        boostMusicVolume()
+        boostAlarmVolume()
         when (AppSettings.alarmMode(this)) {
             "ring" -> startSound()
             "both" -> {
@@ -353,47 +355,29 @@ class AlarmService : Service() {
 
     private fun speechFile() = java.io.File(cacheDir, "alarm_speech.wav")
 
-    private var liveMode = false
-    private val liveAgain = Runnable { speakLive() }
-    private var speechActive = false
-    private var savedMusicVol = -1
-    private var savedAlarmVol = -1
-
-    /** 三星朗讀引擎常走「媒體音量」,響鬧鐘時暫時調高,結束後還原。 */
-    private fun boostMusicVolume() {
+    /** 鬧鐘音量太小(常見 1/15)就暫時調大,結束後還原。 */
+    private fun boostAlarmVolume() {
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-            val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            val want = (max * AppSettings.alarmVolume(this) / 100f).toInt().coerceAtLeast((max * 0.6f).toInt())
-            diag("媒體音量=$cur/$max 鬧鐘音量=${am.getStreamVolume(android.media.AudioManager.STREAM_ALARM)}/${am.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)} 響鈴模式=${am.ringerMode}")
-            // 鬧鐘音量也要夠大(很多人的鬧鐘音量被調成 1/15,朗讀和鈴聲都會聽不到)
             val aMax = am.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)
             val aCur = am.getStreamVolume(android.media.AudioManager.STREAM_ALARM)
             val aWant = (aMax * AppSettings.alarmVolume(this) / 100f).toInt().coerceAtLeast((aMax * 0.7f).toInt())
             if (aCur < aWant) {
                 if (savedAlarmVol < 0) savedAlarmVol = aCur
                 am.setStreamVolume(android.media.AudioManager.STREAM_ALARM, aWant, 0)
-                diag("鬧鐘音量調到 $aWant")
-            }
-            if (cur < want) {
-                if (savedMusicVol < 0) savedMusicVol = cur
-                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, want, 0)
-                diag("媒體音量調到 $want")
             }
         } catch (e: Exception) {
-            diag("調音量失敗:${e.message}")
+            CrashLog.save(this, e)
         }
     }
 
-    private fun restoreMusicVolume() {
+    private fun restoreAlarmVolume() {
+        if (savedAlarmVol < 0) return
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            if (savedMusicVol >= 0) am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, savedMusicVol, 0)
-            if (savedAlarmVol >= 0) am.setStreamVolume(android.media.AudioManager.STREAM_ALARM, savedAlarmVol, 0)
+            am.setStreamVolume(android.media.AudioManager.STREAM_ALARM, savedAlarmVol, 0)
         } catch (ignored: Exception) {
         }
-        savedMusicVol = -1
         savedAlarmVol = -1
     }
 
@@ -403,99 +387,51 @@ class AlarmService : Service() {
 
     private fun startSpeech(r: Reminder) {
         speechText = AlarmSpeech.text(this, r, System.currentTimeMillis())
-        SpeechDiag.begin(this)
+        SpeechDiag.begin(this, "鬧鐘")
         speechActive = true
-        liveMode = false
         handler.removeCallbacks(speechFallback)
         handler.postDelayed(speechFallback, 9000L)
-        val existing = tts
-        if (existing != null) {
-            synthesize(existing)
+        val engines = SpeechEngines.candidates(this)
+        diag("引擎順序:" + engines.joinToString("→") { SpeechEngines.label(it) })
+        trySynth(engines, 0)
+    }
+
+    private fun trySynth(engines: List<String?>, i: Int) {
+        if (!speechActive) return
+        if (i >= engines.size) {
+            diag("所有引擎都合成不出聲音,改響鈴聲")
+            if (player == null) startSound()
             return
         }
-        tts = TextToSpeech(this) { status ->
-            val t = tts
-            diag("引擎啟動=${if (status == TextToSpeech.SUCCESS) "成功" else "失敗($status)"} 引擎=${t?.defaultEngine}")
-            if (status != TextToSpeech.SUCCESS || t == null) {
-                handler.post { if (player == null) startSound() }
-                return@TextToSpeech
+        val e = engines[i]
+        val s = synth ?: SpeechSynth(this) { diag(it) }.also { synth = it }
+        s.synth(e, speechText, java.util.Locale.TAIWAN, speechFile(), 8000L) { res ->
+            if (!speechActive) return@synth
+            diag("[${SpeechEngines.label(e)}] ${if (res.ok) "成功" else "失敗"},${res.note}(${res.ms}ms)")
+            if (res.ok) {
+                if (e != null) AppSettings.setTtsEngine(this, e)
+                s.release()
+                playSpeechFile()
+            } else {
+                trySynth(engines, i + 1)
             }
-            val tw = t.setLanguage(java.util.Locale.TAIWAN)
-            var lang = tw
-            if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
-                lang = t.setLanguage(java.util.Locale.CHINESE)
-            }
-            diag("中文語言碼=$tw/$lang")
-            if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
-                handler.post { if (player == null) startSound() }
-                return@TextToSpeech
-            }
-            t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {
-                    if (utteranceId == "alarm_live") {
-                        diag("直接朗讀開始")
-                        handler.post { handler.removeCallbacks(speechFallback) }
-                    }
-                }
-
-                override fun onDone(utteranceId: String?) {
-                    if (!speechActive) return
-                    if (utteranceId == "alarm_live") {
-                        handler.post { handler.postDelayed(liveAgain, 2500L) }
-                    } else {
-                        diag("轉檔完成")
-                        handler.post { playSpeechFile() }
-                    }
-                }
-
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) {
-                    onError(utteranceId, -1)
-                }
-
-                override fun onError(utteranceId: String?, errorCode: Int) {
-                    if (!speechActive) return
-                    diag("朗讀錯誤 id=$utteranceId code=$errorCode")
-                    handler.post { if (utteranceId == "alarm_live") { if (player == null) startSound() } else speakLive() }
-                }
-            })
-            handler.post { synthesize(t) }
         }
-    }
-
-    private fun synthesize(t: TextToSpeech) {
-        if (speechText.isBlank()) return
-        val f = speechFile()
-        f.delete()
-        val rc = t.synthesizeToFile(speechText, android.os.Bundle(), f, "alarm_file")
-        diag("轉檔指令=$rc")
-        if (rc != TextToSpeech.SUCCESS) speakLive()
-    }
-
-    /** 轉檔不行時,直接請朗讀引擎用鬧鐘音量念。 */
-    private fun speakLive() {
-        val t = tts ?: run { if (player == null) startSound(); return }
-        if (speechPlayer != null) return
-        if (!speechActive) return
-        liveMode = true
-        boostMusicVolume()
-        val b = android.os.Bundle()
-        val rc = t.speak(speechText, TextToSpeech.QUEUE_FLUSH, b, "alarm_live")
-        diag("直接朗讀指令=$rc")
-        if (rc != TextToSpeech.SUCCESS && player == null) startSound()
     }
 
     private fun playSpeechFile() {
+        if (!speechActive) return
         val f = speechFile()
-        diag("音檔大小=${if (f.exists()) f.length() else -1}")
-        if (!f.exists() || f.length() < 1000) {
-            speakLive()
-            return
-        }
         releaseSpeechPlayer()
+        // 先前因為等太久而響起的鈴聲,在「語音播報」模式下換成語音
+        if (AppSettings.alarmMode(this) == "voice") stopRingOnly()
         val mp = MediaPlayer()
         try {
-            mp.setAudioAttributes(alarmAttributes())
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
             mp.setDataSource(f.absolutePath)
             mp.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
             val v = AppSettings.alarmVolume(this) / 100f
@@ -505,13 +441,24 @@ class AlarmService : Service() {
             mp.start()
             speechPlayer = mp
             handler.removeCallbacks(speechFallback)
-            diag("音檔播放中")
+            diag("用鬧鐘音量播放語音中")
         } catch (e: Exception) {
-            diag("音檔播放失敗:${e.message}")
+            diag("播放語音失敗:${e.message},改響鈴聲")
             CrashLog.save(this, e)
             mp.release()
-            speakLive()
+            if (player == null) startSound()
         }
+    }
+
+    private fun stopRingOnly() {
+        val p = player ?: return
+        handler.removeCallbacks(fadeRunnable)
+        try {
+            p.stop()
+        } catch (ignored: Exception) {
+        }
+        p.release()
+        player = null
     }
 
     private fun releaseSpeechPlayer() {
@@ -526,14 +473,11 @@ class AlarmService : Service() {
 
     private fun stopSpeech() {
         speechActive = false
-        handler.removeCallbacks(liveAgain)
-        restoreMusicVolume()
         handler.removeCallbacks(speechFallback)
         releaseSpeechPlayer()
-        try {
-            tts?.stop()
-        } catch (ignored: Exception) {
-        }
+        synth?.release()
+        synth = null
+        restoreAlarmVolume()
     }
 
     private fun alarmAttributes(): AudioAttributes =
@@ -769,11 +713,8 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         stopPlayback()
-        try {
-            tts?.shutdown()
-        } catch (ignored: Exception) {
-        }
-        tts = null
+        synth?.release()
+        synth = null
         super.onDestroy()
     }
 
