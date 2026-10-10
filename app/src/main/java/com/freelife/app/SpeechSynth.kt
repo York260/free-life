@@ -72,6 +72,10 @@ class SpeechSynth(private val ctx: Context, private val log: (String) -> Unit) {
     private var tts: TextToSpeech? = null
     private var generation = 0
 
+    /** 上一次合成時,引擎有幾個同語言的聲音(-1 = 不知道)。 */
+    var lastSameLang = -1
+        private set
+
     fun release() {
         generation++
         try {
@@ -192,6 +196,7 @@ class SpeechSynth(private val ctx: Context, private val log: (String) -> Unit) {
         try {
             val voices = t.voices?.toList() ?: emptyList()
             val same = voices.filter { it.locale.language == locale.language }
+            lastSameLang = same.size
             val cur = t.voice
             log(
                 "[$tag] 目前聲音=${cur?.name ?: "無"}${cur?.let { flags(it) } ?: ""};" +
@@ -321,9 +326,16 @@ object VoiceProbe {
                     success(e, tag)
                 } else {
                     // 英文也試一次:英文可以、中文不行 = 中文語音沒下載
+                    val zhVoices = synth.lastSameLang
                     synth.synth(e, "This is a voice test.", Locale.US, out, 10_000L) { r2 ->
                         log("[$tag] 英文:${if (r2.ok) "成功" else "失敗"},${r2.note}")
                         if (!r2.ok) {
+                            step(i + 1)
+                            return@synth
+                        }
+                        if (zhVoices == 0) {
+                            // 引擎根本沒有中文聲音(例如三星沒裝中文語音包),不會自己下載,不用等
+                            log("[$tag] 判斷:這個引擎沒有安裝中文語音,換下一個引擎。")
                             step(i + 1)
                             return@synth
                         }
