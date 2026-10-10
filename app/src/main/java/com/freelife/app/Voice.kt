@@ -14,14 +14,18 @@ class Speaker(ctx: Context) {
     private var ready = false
     private var pendingDone: (() -> Unit)? = null
 
+    private val app = ctx.applicationContext
+
     init {
-        tts = TextToSpeech(ctx.applicationContext) { status ->
+        // 用「念得出中文」的引擎(自動測試選出的,或 Google),不用手機預設:三星引擎常沒有中文語音
+        val listener = TextToSpeech.OnInitListener { status ->
             val engine = tts
             if (status == TextToSpeech.SUCCESS && engine != null) {
                 ready = listOf(Locale.TAIWAN, Locale.CHINA, Locale.CHINESE).any { loc ->
                     val r = engine.setLanguage(loc)
                     r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
                 }
+                if (ready) VoiceStyle.apply(app, engine, Locale.TAIWAN)
                 engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
 
@@ -36,6 +40,18 @@ class Speaker(ctx: Context) {
                 })
             }
         }
+        val pkg = SpeechEngines.preferred(app)
+        tts = try {
+            if (pkg == null) TextToSpeech(app, listener) else TextToSpeech(app, listener, pkg)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 設定改了(聲音、音調、語速)就重新套用。 */
+    fun refreshStyle() {
+        val engine = tts ?: return
+        if (ready) VoiceStyle.apply(app, engine, Locale.TAIWAN)
     }
 
     private fun finish() {

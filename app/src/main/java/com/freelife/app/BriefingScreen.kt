@@ -29,6 +29,7 @@ import android.media.RingtoneManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -498,7 +499,7 @@ fun SettingsScreen(
             }
             if (alarmMode == "voice") {
                 Text(
-                    "響起時用語音唸出內容,例如「${AppSettings.address(ctx)},十分鐘後開會,地點三樓會議室」,唸到你處理為止。",
+                    "響起時用語音唸出內容,例如「${AlarmSpeech.sample(ctx)}」,唸到你處理為止。聲音和念法在「助理個性」調整。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -703,23 +704,77 @@ fun SettingsScreen(
                     .padding(top = 8.dp),
             )
             Text(
-                text = "語氣",
+                text = "角色風格",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                modifier = Modifier.padding(top = 12.dp),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Persona.TONES.forEach { (code, label) ->
-                    if (tone == code) {
-                        Button(onClick = {}) { Text(label) }
-                    } else {
-                        OutlinedButton(onClick = {
-                            tone = code
-                            AppSettings.setTone(ctx, code)
-                        }) { Text(label) }
-                    }
+            Chips(Persona.ROLES.map { it.code to it.label }, tone) {
+                tone = it
+                AppSettings.setTone(ctx, it)
+            }
+            Text(
+                "${Persona.role(tone).desc}。鬧鐘會這樣念:「${AlarmSpeech.say(tone, AppSettings.address(ctx), "10分鐘後", "開會", "三樓會議室", "下午三點")}」",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            // ── 聲音:男女聲(選聲音)、音調、語速 ──
+            var voiceName by remember { mutableStateOf(AppSettings.ttsVoice(ctx)) }
+            var pitch by remember { mutableStateOf(AppSettings.ttsPitch(ctx)) }
+            var rate by remember { mutableStateOf(AppSettings.ttsRate(ctx)) }
+            var voices by remember { mutableStateOf<List<android.speech.tts.Voice>?>(null) }
+            var previewing by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                VoiceStyle.loadVoices(ctx, SpeechEngines.preferred(ctx)) { voices = it }
+            }
+            Text(
+                text = "聲音",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            val vlist = voices
+            when {
+                vlist == null -> Text("讀取可用的聲音…", style = MaterialTheme.typography.bodySmall)
+                vlist.isEmpty() -> Text(
+                    "找不到已下載的中文聲音。可以按「鬧鐘響法」裡的「打開文字轉語音設定」下載更多聲音。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                else -> Chips(
+                    listOf("" to "自動") + vlist.map { it.name to VoiceStyle.label(it) },
+                    voiceName,
+                ) {
+                    voiceName = it
+                    AppSettings.setTtsVoice(ctx, it)
                 }
             }
+            Text(
+                "男聲或女聲要看手機有哪些聲音,選一個再按「試聽」聽聽看;想要低沉一點,音調選「低沉」。Google 文字轉語音設定裡可以下載更多台灣聲音。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("音調", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+            Chips(VoiceStyle.PITCHES, VoiceStyle.PITCHES.minByOrNull { kotlin.math.abs(it.first - pitch) }!!.first) {
+                pitch = it
+                AppSettings.setTtsPitch(ctx, it)
+            }
+            Text("語速", style = MaterialTheme.typography.bodySmall)
+            Chips(VoiceStyle.RATES, VoiceStyle.RATES.minByOrNull { kotlin.math.abs(it.first - rate) }!!.first) {
+                rate = it
+                AppSettings.setTtsRate(ctx, it)
+            }
+            Button(
+                enabled = !previewing,
+                onClick = {
+                    previewing = true
+                    VoiceStyle.preview(ctx) { ok ->
+                        previewing = false
+                        if (!ok) android.widget.Toast.makeText(ctx, "這個聲音念不出來,請換一個或按自動測試語音", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                },
+                modifier = Modifier.padding(top = 4.dp),
+            ) { Text(if (previewing) "播放中…" else "試聽") }
 
             Text(
                 text = "AI(選填)",

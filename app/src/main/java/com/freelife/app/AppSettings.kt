@@ -135,6 +135,18 @@ object AppSettings {
     fun ttsEngine(ctx: Context): String = prefs(ctx).getString("tts_engine", "") ?: ""
     fun setTtsEngine(ctx: Context, v: String) = prefs(ctx).edit().putString("tts_engine", v).apply()
 
+    /** 指定的朗讀聲音名稱,空字串 = 自動挑。 */
+    fun ttsVoice(ctx: Context): String = prefs(ctx).getString("tts_voice", "") ?: ""
+    fun setTtsVoice(ctx: Context, v: String) = prefs(ctx).edit().putString("tts_voice", v).apply()
+
+    /** 音調(1.0 = 自然,越低越低沉)。 */
+    fun ttsPitch(ctx: Context): Float = prefs(ctx).getFloat("tts_pitch", 1.0f)
+    fun setTtsPitch(ctx: Context, v: Float) = prefs(ctx).edit().putFloat("tts_pitch", v).apply()
+
+    /** 語速(1.0 = 正常)。 */
+    fun ttsRate(ctx: Context): Float = prefs(ctx).getFloat("tts_rate", 1.0f)
+    fun setTtsRate(ctx: Context, v: Float) = prefs(ctx).edit().putFloat("tts_rate", v).apply()
+
     fun alarmMode(ctx: Context): String = prefs(ctx).getString("alarm_mode", "voice") ?: "voice"
     fun setAlarmMode(ctx: Context, v: String) = prefs(ctx).edit().putString("alarm_mode", v).apply()
 

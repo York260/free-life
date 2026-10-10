@@ -853,17 +853,55 @@ object AlarmSpeech {
             mins <= -2 -> "已經開始了"
             else -> "現在"
         }
+        val addr = AppSettings.address(ctx)
+        val loc = r.location.trim()
+        val end = r.endAt?.let { clock(java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()) }
+        return say(AppSettings.tone(ctx), addr, whenText, r.title.trim(), loc, end)
+    }
+
+    /** 依助理角色決定鬧鐘怎麼念。 */
+    fun say(role: String, addr: String, whenText: String, title: String, loc: String, end: String?): String {
         val sb = StringBuilder()
-        sb.append(AppSettings.address(ctx)).append(",")
-        sb.append(whenText).append(",").append(r.title)
-        if (r.location.isNotBlank()) sb.append(",地點").append(r.location)
-        r.endAt?.let {
-            val e = java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()
-            sb.append(",到").append(clock(e))
+        when (role) {
+            "secretary" -> {
+                sb.append(addr).append("您好,").append(whenText).append("有「").append(title).append("」")
+                if (loc.isNotBlank()) sb.append(",地點在").append(loc)
+                if (end != null) sb.append(",預計到").append(end)
+                sb.append("。")
+            }
+            "concise" -> {
+                sb.append(whenText).append(",").append(title)
+                if (loc.isNotBlank()) sb.append(",").append(loc)
+                sb.append("。")
+            }
+            "warm" -> {
+                sb.append(addr).append(",提醒你一下,").append(whenText).append("是「").append(title).append("」")
+                if (loc.isNotBlank()) sb.append(",在").append(loc)
+                sb.append(",別忘了喔。")
+            }
+            "cheerful" -> {
+                sb.append(addr).append("!").append(whenText).append("「").append(title).append("」")
+                if (loc.isNotBlank()) sb.append(",地點").append(loc)
+                sb.append(",一起加油!")
+            }
+            "coach" -> {
+                sb.append(addr).append(",").append(whenText).append("「").append(title).append("」")
+                if (loc.isNotBlank()) sb.append(",地點").append(loc)
+                sb.append("。現在就動起來,不要拖。")
+            }
+            else -> {
+                sb.append(addr).append(",").append(whenText).append(",").append(title)
+                if (loc.isNotBlank()) sb.append(",地點").append(loc)
+                if (end != null) sb.append(",到").append(end)
+                sb.append("。")
+            }
         }
-        sb.append("。")
         return sb.toString()
     }
+
+    /** 設定頁試聽用的例句。 */
+    fun sample(ctx: Context): String =
+        say(AppSettings.tone(ctx), AppSettings.address(ctx), "10分鐘後", "開會", "三樓會議室", "下午三點")
 
     /** 18:30 → 「晚上六點半」,唸起來比較自然。 */
     fun clock(t: java.time.LocalDateTime): String {

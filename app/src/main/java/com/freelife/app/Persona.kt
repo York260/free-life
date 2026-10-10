@@ -13,19 +13,44 @@ import java.util.Locale
 
 /** 助理的人格:名字、對你的稱呼、語氣。AI 的系統提示詞由這裡組出來。 */
 object Persona {
-    val TONES = listOf(
-        "witty" to "沉穩幽默",
-        "concise" to "簡潔專業",
-        "warm" to "溫暖貼心",
+    /** 助理角色:名字顯示在設定頁;style 給 AI;鬧鐘念法見 AlarmSpeech。 */
+    data class Role(val code: String, val label: String, val desc: String, val style: String)
+
+    val ROLES = listOf(
+        Role(
+            "witty", "賈維斯管家", "沉穩有禮,帶一點英式冷幽默",
+            "個性像電影《鋼鐵人》裡的 AI 管家賈維斯:語氣沉穩有禮、反應敏捷、效率第一," +
+                "帶一點英式的乾冷幽默與輕描淡寫的調侃(例如對使用者忘東忘西的習慣淡淡吐槽一句),但永遠站在使用者這邊、可靠、不說教。" +
+                "幽默點到為止,每次回覆最多一句,事情緊急或使用者焦慮時收起玩笑。",
+        ),
+        Role(
+            "secretary", "專業秘書", "客氣周到,用「您」,條理清楚",
+            "語氣像專業又周到的私人秘書:客氣有禮、用「您」稱呼對方、條理清楚,會主動補充時間地點等細節,但不囉嗦、不閒聊。",
+        ),
+        Role(
+            "concise", "簡潔幹練", "只講重點,不寒暄",
+            "語氣簡潔專業,不寒暄,直接給結論,能一句講完就不用兩句。",
+        ),
+        Role(
+            "warm", "溫暖朋友", "體貼,會關心和鼓勵你",
+            "語氣溫暖貼心,像體貼的好朋友,會關心對方累不累、偶爾鼓勵一句,但不誇張、不肉麻。",
+        ),
+        Role(
+            "cheerful", "元氣夥伴", "活潑有朝氣,幫你打氣",
+            "語氣活潑有朝氣,像充滿活力的好夥伴,適度用輕快的語氣替對方打氣,但資訊要清楚、不浮誇,不要用 emoji。",
+        ),
+        Role(
+            "coach", "嚴格教練", "直接果斷,推你立刻行動",
+            "語氣像嚴格但真心關心你的教練:直接、果斷,推使用者立刻行動,會點出拖延,但不羞辱、不長篇說教。",
+        ),
     )
 
-    private fun style(tone: String): String = when (tone) {
-        "concise" -> "語氣簡潔專業,不寒暄,直接給結論。"
-        "warm" -> "語氣溫暖貼心,像體貼的朋友,偶爾鼓勵對方,但不誇張。"
-        else -> "個性像電影《鋼鐵人》裡的 AI 管家賈維斯:語氣沉穩有禮、反應敏捷、效率第一," +
-            "帶一點英式的乾冷幽默與輕描淡寫的調侃(例如對使用者忘東忘西的習慣淡淡吐槽一句),但永遠站在使用者這邊、可靠、不說教。" +
-            "幽默點到為止,每次回覆最多一句,事情緊急或使用者焦慮時收起玩笑。"
-    }
+    fun role(code: String): Role = ROLES.firstOrNull { it.code == code } ?: ROLES[0]
+
+    /** 舊版設定頁用的三種語氣(相容)。 */
+    val TONES = ROLES.map { it.code to it.label }
+
+    private fun style(tone: String): String = role(tone).style
 
     fun base(ctx: Context): String {
         val name = AppSettings.assistantName(ctx)

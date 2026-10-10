@@ -54,6 +54,17 @@ object SpeechEngines {
         return list.ifEmpty { listOf(null) }
     }
 
+    /** 對話朗讀用:上次成功的 → Google → 系統預設。 */
+    fun preferred(ctx: Context): String? {
+        val inst = installed(ctx)
+        val saved = AppSettings.ttsEngine(ctx)
+        return when {
+            saved.isNotBlank() && saved in inst -> saved
+            GOOGLE in inst -> GOOGLE
+            else -> systemDefault(ctx)
+        }
+    }
+
     fun label(pkg: String?): String = when {
         pkg == null -> "系統預設"
         pkg.contains("samsung", true) -> "三星"
@@ -191,7 +202,7 @@ class SpeechSynth(private val ctx: Context, private val log: (String) -> Unit) {
         tts = inst
     }
 
-    /** 目前的聲音沒下載或要網路,就換一個已安裝的同語言聲音。 */
+    /** 記錄目前聲音,再套用使用者選的聲音、音調、語速(選的不能用就自動挑)。 */
     private fun pickVoice(t: TextToSpeech, locale: Locale, tag: String) {
         try {
             val voices = t.voices?.toList() ?: emptyList()
@@ -199,30 +210,15 @@ class SpeechSynth(private val ctx: Context, private val log: (String) -> Unit) {
             lastSameLang = same.size
             val cur = t.voice
             log(
-                "[$tag] 目前聲音=${cur?.name ?: "無"}${cur?.let { flags(it) } ?: ""};" +
-                    "同語言 ${same.size} 個:" + same.take(5).joinToString("、") { it.name + flags(it) },
+                "[$tag] 目前聲音=${cur?.name ?: "無"}${cur?.let { VoiceStyle.flags(it) } ?: ""};" +
+                    "同語言 ${same.size} 個:" + same.take(5).joinToString("、") { it.name + VoiceStyle.flags(it) },
             )
-            val bad = cur == null || notInstalled(cur) || cur.isNetworkConnectionRequired ||
-                cur.locale.language != locale.language
-            if (bad) {
-                val best = same
-                    .filter { !notInstalled(it) && !it.isNetworkConnectionRequired }
-                    .sortedWith(compareByDescending<Voice> { it.locale.country == locale.country }.thenByDescending { it.quality })
-                    .firstOrNull()
-                if (best != null) {
-                    t.voice = best
-                    log("[$tag] 改用聲音 ${best.name}")
-                }
-            }
         } catch (e: Exception) {
             log("[$tag] 讀聲音清單失敗:${e.message}")
         }
+        val msg = VoiceStyle.apply(ctx, t, locale)
+        if (msg.isNotBlank()) log("[$tag] $msg")
     }
-
-    private fun notInstalled(v: Voice) = v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true
-
-    private fun flags(v: Voice): String =
-        (if (notInstalled(v)) "(未下載)" else "") + (if (v.isNetworkConnectionRequired) "(需網路)" else "")
 
     companion object {
         /** PCM → 16 位元 WAV(浮點數格式先轉成 16 位元,播放器才吃得下)。 */
@@ -261,6 +257,136 @@ class SpeechSynth(private val ctx: Context, private val log: (String) -> Unit) {
                 it.write(pcm16)
             }
         }
+    }
+}
+
+/** 使用者對聲音的喜好:指定聲音、音調、語速。鬧鐘、試聽、對話朗讀都用這裡。 */
+object VoiceStyle {
+    val PITCHES = listOf(0.8f to "低沉", 1.0f to "自然", 1.2f to "明亮")
+    val RATES = listOf(0.85f to "慢", 1.0f to "正常", 1.15f to "快")
+
+    fun notInstalled(v: Voice) = v.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true
+
+    /** 已經在手機上、不用網路的聲音才拿來當鬧鐘(沒網路也要念得出來)。 */
+    fun usable(v: Voice) = !notInstalled(v) && !v.isNetworkConnectionRequired
+
+    fun flags(v: Voice): String =
+        (if (notInstalled(v)) "(未下載)" else "") + (if (v.isNetworkConnectionRequired) "(需網路)" else "")
+
+    fun best(same: List<Voice>, locale: Locale): Voice? = same
+        .filter { usable(it) }
+        .sortedWith(compareByDescending<Voice> { it.locale.country.equals(locale.country, true) }.thenByDescending { it.quality })
+        .firstOrNull()
+
+    fun apply(ctx: Context, t: TextToSpeech, locale: Locale): String {
+        var msg = ""
+        try {
+            val same = (t.voices?.toList() ?: emptyList()).filter { it.locale.language == locale.language }
+            val wanted = AppSettings.ttsVoice(ctx)
+            val pick = if (locale.language == "zh") same.firstOrNull { it.name == wanted && usable(it) } else null
+            val cur = t.voice
+            if (pick != null) {
+                if (cur?.name != pick.name) t.voice = pick
+                msg = "用你選的聲音 ${pick.name}"
+            } else if (cur == null || !usable(cur) || cur.locale.language != locale.language) {
+                best(same, locale)?.let {
+                    t.voice = it
+                    msg = "改用聲音 ${it.name}"
+                }
+            }
+        } catch (e: Exception) {
+            msg = "選聲音失敗:${e.message}"
+        }
+        try {
+            t.setPitch(AppSettings.ttsPitch(ctx))
+            t.setSpeechRate(AppSettings.ttsRate(ctx))
+        } catch (ignored: Exception) {
+        }
+        return msg
+    }
+
+    /** cmn-tw-x-ctc-local → 「台灣 · ctc」 */
+    fun label(v: Voice): String {
+        val region = when (v.locale.country.uppercase()) {
+            "TW" -> "台灣"
+            "CN" -> "大陸"
+            "HK" -> "香港"
+            "" -> "中文"
+            else -> v.locale.country
+        }
+        val parts = v.name.split('-')
+        val code = when {
+            v.name.contains("-x-") -> parts.getOrNull(parts.indexOf("x") + 1) ?: v.name
+            v.name.endsWith("-language") -> "預設"
+            else -> v.name
+        }
+        return "$region · $code"
+    }
+
+    /** 讀出某個引擎可以用的中文聲音(台灣優先)。 */
+    fun loadVoices(ctx: Context, engine: String?, done: (List<Voice>) -> Unit) {
+        val main = Handler(Looper.getMainLooper())
+        var inst: TextToSpeech? = null
+        var finished = false
+        fun finish(list: List<Voice>) {
+            if (finished) return
+            finished = true
+            main.post {
+                try {
+                    inst?.shutdown()
+                } catch (ignored: Exception) {
+                }
+                done(list)
+            }
+        }
+        val listener = TextToSpeech.OnInitListener { status ->
+            main.post {
+                val t = inst
+                if (status != TextToSpeech.SUCCESS || t == null) {
+                    finish(emptyList())
+                    return@post
+                }
+                val list = try {
+                    (t.voices?.toList() ?: emptyList())
+                        .filter { it.locale.language == "zh" && usable(it) }
+                        .sortedWith(compareByDescending<Voice> { it.locale.country.equals("TW", true) }.thenBy { it.name })
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                finish(list)
+            }
+        }
+        inst = try {
+            if (engine == null) TextToSpeech(ctx, listener) else TextToSpeech(ctx, listener, engine)
+        } catch (e: Exception) {
+            null
+        }
+        if (inst == null) finish(emptyList())
+        main.postDelayed({ finish(emptyList()) }, 8000L)
+    }
+
+    /** 用目前的角色、聲音、音調、語速念一句例句(鬧鐘音量)。 */
+    fun preview(ctx: Context, onDone: (Boolean) -> Unit) {
+        val app = ctx.applicationContext
+        val synth = SpeechSynth(app) { SpeechDiag.add(app, it) }
+        val out = File(app.cacheDir, "preview.wav")
+        val engines = SpeechEngines.candidates(app)
+        fun go(i: Int) {
+            if (i >= engines.size) {
+                synth.release()
+                onDone(false)
+                return
+            }
+            synth.synth(engines[i], AlarmSpeech.sample(app), Locale.TAIWAN, out, 10_000L) { r ->
+                if (r.ok) {
+                    synth.release()
+                    VoiceProbe.playWav(app, out) { onDone(it) }
+                } else {
+                    go(i + 1)
+                }
+            }
+        }
+        go(0)
     }
 }
 
