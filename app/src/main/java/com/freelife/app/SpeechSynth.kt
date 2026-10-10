@@ -394,7 +394,7 @@ object VoiceStyle {
 object VoiceProbe {
     private val main = Handler(Looper.getMainLooper())
     private var running = false
-    const val TEST_TEXT = "長官,這是語音測試,聽得到就代表成功。"
+    private fun testText(ctx: Context) = "${AppSettings.address(ctx)},這是語音測試,聽得到就代表成功。"
 
     fun isRunning() = running
 
@@ -427,7 +427,7 @@ object VoiceProbe {
             log("結論:鬧鐘改用「$tag」引擎,並用鬧鐘音量播放。現在播放測試語音…")
             synth.release()
             playWav(app, out) { played ->
-                log(if (played) "播放完成。有聽到「長官,這是語音測試」就成功了。" else "播放失敗。")
+                log(if (played) "播放完成。有聽到「${AppSettings.address(app)},這是語音測試」就成功了。" else "播放失敗。")
                 running = false
                 onDone(true)
             }
@@ -446,7 +446,7 @@ object VoiceProbe {
             }
             val e = engines[i]
             val tag = SpeechEngines.label(e)
-            synth.synth(e, TEST_TEXT, Locale.TAIWAN, out, 12_000L) { r ->
+            synth.synth(e, testText(app), Locale.TAIWAN, out, 12_000L) { r ->
                 log("[$tag] 中文:${if (r.ok) "成功" else "失敗"},${r.note}(${r.ms}ms)")
                 if (r.ok) {
                     success(e, tag)
@@ -468,7 +468,7 @@ object VoiceProbe {
                         // 引擎正常、中文不行:通常是中文語音正在背景下載,等一下再試
                         log("[$tag] 判斷:引擎正常,中文語音可能正在下載,25 秒後再試…")
                         main.postDelayed({
-                            synth.synth(e, TEST_TEXT, Locale.TAIWAN, out, 15_000L) { r3 ->
+                            synth.synth(e, testText(app), Locale.TAIWAN, out, 15_000L) { r3 ->
                                 log("[$tag] 中文第二次:${if (r3.ok) "成功" else "失敗"},${r3.note}")
                                 if (r3.ok) success(e, tag) else step(i + 1)
                             }
