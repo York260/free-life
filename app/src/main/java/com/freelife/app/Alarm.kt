@@ -340,6 +340,7 @@ class AlarmService : Service() {
 
     /** 依設定:語音播報 / 鈴聲 / 鈴聲加語音。語音不能用時自動改回鈴聲。 */
     private fun startAlert(r: Reminder) {
+        boostMusicVolume()
         when (AppSettings.alarmMode(this)) {
             "ring" -> startSound()
             "both" -> {
@@ -356,6 +357,7 @@ class AlarmService : Service() {
     private val liveAgain = Runnable { speakLive() }
     private var speechActive = false
     private var savedMusicVol = -1
+    private var savedAlarmVol = -1
 
     /** 三星朗讀引擎常走「媒體音量」,響鬧鐘時暫時調高,結束後還原。 */
     private fun boostMusicVolume() {
@@ -365,6 +367,15 @@ class AlarmService : Service() {
             val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
             val want = (max * AppSettings.alarmVolume(this) / 100f).toInt().coerceAtLeast((max * 0.6f).toInt())
             diag("媒體音量=$cur/$max 鬧鐘音量=${am.getStreamVolume(android.media.AudioManager.STREAM_ALARM)}/${am.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)} 響鈴模式=${am.ringerMode}")
+            // 鬧鐘音量也要夠大(很多人的鬧鐘音量被調成 1/15,朗讀和鈴聲都會聽不到)
+            val aMax = am.getStreamMaxVolume(android.media.AudioManager.STREAM_ALARM)
+            val aCur = am.getStreamVolume(android.media.AudioManager.STREAM_ALARM)
+            val aWant = (aMax * AppSettings.alarmVolume(this) / 100f).toInt().coerceAtLeast((aMax * 0.7f).toInt())
+            if (aCur < aWant) {
+                if (savedAlarmVol < 0) savedAlarmVol = aCur
+                am.setStreamVolume(android.media.AudioManager.STREAM_ALARM, aWant, 0)
+                diag("鬧鐘音量調到 $aWant")
+            }
             if (cur < want) {
                 if (savedMusicVol < 0) savedMusicVol = cur
                 am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, want, 0)
@@ -376,13 +387,14 @@ class AlarmService : Service() {
     }
 
     private fun restoreMusicVolume() {
-        if (savedMusicVol < 0) return
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, savedMusicVol, 0)
+            if (savedMusicVol >= 0) am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, savedMusicVol, 0)
+            if (savedAlarmVol >= 0) am.setStreamVolume(android.media.AudioManager.STREAM_ALARM, savedAlarmVol, 0)
         } catch (ignored: Exception) {
         }
         savedMusicVol = -1
+        savedAlarmVol = -1
     }
 
     private fun diag(msg: String) {
