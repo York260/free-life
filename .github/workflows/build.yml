@@ -118,12 +118,19 @@ jobs:
             adb shell input keyevent KEYCODE_HOME
             sleep 40
             adb logcat -d -v raw -s FreeLifeProbe:I > alarm.log || true
+            adb shell am force-stop com.freelife.app
+            adb logcat -c
+            adb shell am start -n com.freelife.app/.MainActivity --ez probeAlarm true
+            sleep 5
+            adb shell input keyevent KEYCODE_HOME
+            sleep 40
+            adb logcat -d -v raw -s FreeLifeProbe:I > alarm2.log || true
             adb logcat -d -v brief AndroidRuntime:E '*:S' > crash.log || true
 
       - name: Report
         if: always()
         run: |
-          for f in probe.log alarm.log crash.log; do
+          for f in probe.log alarm.log alarm2.log crash.log; do
             echo "== $f"; cat $f 2>/dev/null || true
             msg=$(cat $f 2>/dev/null | head -60 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::notice title=$f::${msg:-empty}"

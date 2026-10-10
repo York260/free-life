@@ -396,7 +396,7 @@ class AlarmService : Service() {
         trySynth(engines, 0)
     }
 
-    private fun trySynth(engines: List<String?>, i: Int) {
+    private fun trySynth(engines: List<String?>, i: Int, attempt: Int = 0) {
         if (!speechActive) return
         if (i >= engines.size) {
             diag("所有引擎都合成不出聲音,改響鈴聲")
@@ -412,6 +412,10 @@ class AlarmService : Service() {
                 if (e != null) AppSettings.setTtsEngine(this, e)
                 s.release()
                 playSpeechFile()
+            } else if (attempt == 0) {
+                // 引擎偶爾剛被叫醒時會拒絕第一次,等一秒換新連線再試一次
+                s.release()
+                handler.postDelayed({ trySynth(engines, i, 1) }, 1000L)
             } else {
                 trySynth(engines, i + 1)
             }
