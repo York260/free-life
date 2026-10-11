@@ -38,54 +38,72 @@ object Kokoro {
     fun active(ctx: Context) = AppSettings.voiceEngine(ctx) == "kokoro" && isReady(ctx)
 
     // ── 下載 ──
+    // 交給系統的下載管理員:App 在背景、螢幕關掉、網路中斷都會自動續傳,通知列看得到進度。
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("kokoro", Context.MODE_PRIVATE)
+
+    /** 還有沒完成的下載(例如上次下載到一半就離開這頁)。 */
+    fun pendingDownload(ctx: Context): Boolean = prefs(ctx).getLong("dl_id", -1L) >= 0 && !isReady(ctx)
+
     fun download(ctx: Context, onProgress: (Int) -> Unit, onDone: (Boolean, String) -> Unit) {
+        val app = ctx.applicationContext
+        val dm = app.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+        var id = prefs(app).getLong("dl_id", -1L)
+        if (id < 0 || status(dm, id) == null) {
+            val dest = File(app.getExternalFilesDir(null), "kokoro-zh.zip")
+            dest.delete()
+            val req = android.app.DownloadManager.Request(android.net.Uri.parse(MODEL_URL))
+                .setTitle("Free Life 生動語音")
+                .setDescription("下載語音模型(約 147MB)")
+                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE)
+                .setDestinationUri(android.net.Uri.fromFile(dest))
+            id = dm.enqueue(req)
+            prefs(app).edit().putLong("dl_id", id).apply()
+        }
+        cbProgress = onProgress
+        cbDone = onDone
+        watch(app, dm, id)
+    }
+
+    // 設定頁重開時換成新的畫面接收進度
+    @Volatile private var cbProgress: (Int) -> Unit = {}
+    @Volatile private var cbDone: (Boolean, String) -> Unit = { _, _ -> }
+
+    /** 回傳 (狀態, 已下載, 總大小, 原因);查不到回傳 null。 */
+    private fun status(dm: android.app.DownloadManager, id: Long): LongArray? {
+        dm.query(android.app.DownloadManager.Query().setFilterById(id)).use { c ->
+            if (c == null || !c.moveToFirst()) return null
+            fun col(n: String) = c.getLong(c.getColumnIndexOrThrow(n))
+            return longArrayOf(
+                col(android.app.DownloadManager.COLUMN_STATUS),
+                col(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),
+                col(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES),
+                col(android.app.DownloadManager.COLUMN_REASON),
+            )
+        }
+    }
+
+    private fun watch(app: Context, dm: android.app.DownloadManager, id: Long) {
         if (downloading) return
         downloading = true
-        val app = ctx.applicationContext
         Thread {
-            val tmp = File(app.cacheDir, "kokoro.zip")
+            var result: Pair<Boolean, String>
             try {
-                var url = URL(MODEL_URL)
-                var conn: HttpURLConnection
-                var hops = 0
                 while (true) {
-                    conn = url.openConnection() as HttpURLConnection
-                    conn.instanceFollowRedirects = false
-                    conn.connectTimeout = 20_000
-                    conn.readTimeout = 60_000
-                    val code = conn.responseCode
-                    if (code in 300..399 && hops < 5) {
-                        url = URL(url, conn.getHeaderField("Location"))
-                        conn.disconnect()
-                        hops++
-                        continue
+                    val st = status(dm, id) ?: throw IllegalStateException("下載被取消了")
+                    when (st[0].toInt()) {
+                        android.app.DownloadManager.STATUS_SUCCESSFUL -> break
+                        android.app.DownloadManager.STATUS_FAILED -> throw IllegalStateException("下載失敗(代碼 ${st[3]})")
                     }
-                    if (code != 200) throw IllegalStateException("下載失敗 HTTP $code")
-                    break
+                    val pct = if (st[2] > 0) (st[1] * 90 / st[2]).toInt() else 0
+                    main.post { cbProgress(pct) }
+                    Thread.sleep(1000)
                 }
-                val total = conn.contentLengthLong
-                var got = 0L
-                var lastPct = -1
-                conn.inputStream.use { input ->
-                    tmp.outputStream().use { out ->
-                        val buf = ByteArray(256 * 1024)
-                        while (true) {
-                            val n = input.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            got += n
-                            val pct = if (total > 0) (got * 90 / total).toInt() else 0
-                            if (pct != lastPct) {
-                                lastPct = pct
-                                main.post { onProgress(pct) }
-                            }
-                        }
-                    }
-                }
+                main.post { cbProgress(92) }
+                val zip = File(app.getExternalFilesDir(null), "kokoro-zh.zip")
                 val d = dir(app)
                 d.deleteRecursively()
                 d.mkdirs()
-                ZipInputStream(tmp.inputStream().buffered()).use { zin ->
+                ZipInputStream(zip.inputStream().buffered()).use { zin ->
                     while (true) {
                         val e = zin.nextEntry ?: break
                         val f = File(d, e.name)
@@ -98,18 +116,25 @@ object Kokoro {
                         }
                     }
                 }
-                main.post { onProgress(95) }
                 File(d, "ok").writeText("1")
-                tmp.delete()
-                // 載入一次,確認模型可用
+                zip.delete()
+                prefs(app).edit().remove("dl_id").apply()
+                main.post { cbProgress(97) }
                 val okLoad = engine(app) != null
-                downloading = false
-                main.post { onProgress(100); onDone(okLoad, if (okLoad) "下載完成" else "模型載入失敗") }
+                result = if (okLoad) true to "下載完成" else false to "模型載入失敗"
             } catch (e: Exception) {
-                tmp.delete()
-                downloading = false
-                CrashLog.save(app, e)
-                main.post { onDone(false, e.message ?: "下載失敗") }
+                prefs(app).edit().remove("dl_id").apply()
+                try {
+                    dm.remove(id)
+                } catch (ignored: Exception) {
+                }
+                result = false to (e.message ?: "下載失敗")
+            }
+            downloading = false
+            val (ok, msg) = result
+            main.post {
+                if (ok) cbProgress(100)
+                cbDone(ok, msg)
             }
         }.start()
     }

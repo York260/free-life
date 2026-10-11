@@ -872,8 +872,19 @@ private fun VoiceEngineSection(onChanged: () -> Unit) {
     val ctx = LocalContext.current
     var engine by remember { mutableStateOf(AppSettings.voiceEngine(ctx)) }
     var ready by remember { mutableStateOf(Kokoro.isReady(ctx)) }
-    var progress by remember { mutableStateOf(if (Kokoro.downloading) 0 else -1) }
+    var progress by remember { mutableStateOf(if (Kokoro.downloading || Kokoro.pendingDownload(ctx)) 0 else -1) }
     var msg by remember { mutableStateOf("") }
+    // 上次下載到一半離開這頁:回來時接著看進度(下載本身由系統在背景繼續)
+    LaunchedEffect(Unit) {
+        if (Kokoro.pendingDownload(ctx)) {
+            Kokoro.download(ctx, { progress = it }) { ok, m ->
+                progress = -1
+                ready = ok
+                msg = if (ok) "" else "($m,可以再試一次)"
+                onChanged()
+            }
+        }
+    }
     Text("鬧鐘語音", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
     Chips(listOf("system" to "手機內建", "kokoro" to "生動語音(離線)"), engine) {
         engine = it
@@ -901,7 +912,7 @@ private fun VoiceEngineSection(onChanged: () -> Unit) {
                     progress = { progress / 100f },
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
-                Text("下載中 $progress%(約 147MB,建議用 Wi-Fi,可以先離開這頁)", style = MaterialTheme.typography.bodySmall)
+                Text("下載中 $progress%(約 147MB,建議用 Wi-Fi;離開這頁或關螢幕也會在背景繼續,通知列看得到進度)", style = MaterialTheme.typography.bodySmall)
             }
             else -> {
                 Text(
