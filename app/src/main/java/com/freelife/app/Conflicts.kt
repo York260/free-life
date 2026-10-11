@@ -45,7 +45,7 @@ object Conflicts {
     }
 
     /** 把 from..to 前後一天內的行程展開成 (行程, 開始, 結束)。 */
-    private fun spans(list: List<Reminder>, fromMs: Long, toMs: Long): List<Triple<Reminder, Long, Long?>> {
+    fun spans(list: List<Reminder>, fromMs: Long, toMs: Long): List<Triple<Reminder, Long, Long?>> {
         val zone = java.time.ZoneId.systemDefault()
         val d0 = java.time.Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate().minusDays(1)
         val d1 = java.time.Instant.ofEpochMilli(toMs).atZone(zone).toLocalDate().plusDays(2)

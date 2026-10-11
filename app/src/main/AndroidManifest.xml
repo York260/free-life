@@ -5,6 +5,8 @@
     <!-- 讓語音鬧鐘看得到手機的朗讀引擎(不用 queries 標籤,相容性最好) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 完全勿擾:同步打開手機的勿擾(使用者要在系統設定裡授權) -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -124,6 +126,17 @@
         <receiver
             android:name=".DailyReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".DndReceiver"
+            android:exported="false" />
+
+        <activity
+            android:name=".DndActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <receiver
             android:name=".PreMeetingReceiver"

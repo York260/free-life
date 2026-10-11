@@ -589,34 +589,41 @@ fun SettingsScreen(
             }
 
             Text(
-                text = "會議中的提醒",
+                text = "勿擾",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 24.dp),
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = "排程進行中先靜音問我",
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                )
-                Switch(
-                    checked = conflictAsk,
-                    onCheckedChange = {
-                        conflictAsk = it
-                        AppSettings.setConflictAsk(ctx, it)
-                    },
-                )
-            }
             Text(
-                text = "提醒響起時若有排程進行中,會先靜音問你;3 分鐘沒處理就照常響。",
+                "普通勿擾:只擋 Free Life 的提醒(改成靜音通知,可選結束後再提醒)。完全勿擾:再同時打開手機的勿擾。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
             )
+            var dndClass by remember { mutableStateOf(AppSettings.dndClass(ctx)) }
+            var dndMeeting by remember { mutableStateOf(AppSettings.dndMeeting(ctx)) }
+            var showDndPanel by remember { mutableStateOf(false) }
+            Text("上課時", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+            Chips(Dnd.CHOICES, dndClass) {
+                dndClass = it
+                AppSettings.setDndClass(ctx, it)
+                Dnd.apply(ctx)
+            }
+            Text("其他行程(會議等)進行中", style = MaterialTheme.typography.bodyMedium)
+            Chips(Dnd.CHOICES, dndMeeting) {
+                dndMeeting = it
+                AppSettings.setDndMeeting(ctx, it)
+                Dnd.apply(ctx)
+            }
+            Text(
+                "個別行程也可以在編輯時另外指定。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!Dnd.policyGranted(ctx)) {
+                OutlinedButton(onClick = { ctx.startActivity(Dnd.policyIntent()) }) { Text("允許控制手機勿擾(完全勿擾需要)") }
+            }
+            Button(onClick = { showDndPanel = true }, modifier = Modifier.padding(top = 4.dp)) { Text("現在開啟勿擾…") }
+            if (showDndPanel) DndDialog { showDndPanel = false }
 
             Text(
                 text = "助理",
@@ -678,7 +685,6 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            VoiceEngineSection { roleVersion++ }
             androidx.compose.runtime.key(tone, roleVersion) {
                 RoleEditor(tone) { roleVersion++ }
             }
@@ -826,11 +832,8 @@ private fun RoleEditor(code: String, onReset: () -> Unit) {
     }
 
     Text("聲音", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
-    if (Kokoro.active(ctx)) {
-        KokoroVoicePicker(code)
-    }
     val vlist = voices
-    if (!Kokoro.active(ctx)) when {
+    when {
         vlist == null -> Text("讀取可用的聲音…", style = MaterialTheme.typography.bodySmall)
         vlist.isEmpty() -> Text(
             "找不到已下載的中文聲音。可以到手機的「設定 → 文字轉語音」下載更多聲音。",
@@ -841,17 +844,15 @@ private fun RoleEditor(code: String, onReset: () -> Unit) {
             Roles.setVoice(ctx, code, it)
         }
     }
-    if (!Kokoro.active(ctx)) Text(
+    Text(
         "男聲或女聲要看手機有哪些聲音,選一個再按上面的「試聽」;想低沉一點選「低沉」,想可愛一點選「明亮」。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    if (!Kokoro.active(ctx)) {
-        Text("音調", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-        Chips(VoiceStyle.PITCHES, VoiceStyle.PITCHES.minByOrNull { kotlin.math.abs(it.first - pitch) }!!.first) {
-            pitch = it
-            Roles.setPitch(ctx, code, it)
-        }
+    Text("音調", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+    Chips(VoiceStyle.PITCHES, VoiceStyle.PITCHES.minByOrNull { kotlin.math.abs(it.first - pitch) }!!.first) {
+        pitch = it
+        Roles.setPitch(ctx, code, it)
     }
     Text("語速", style = MaterialTheme.typography.bodySmall)
     Chips(VoiceStyle.RATES, VoiceStyle.RATES.minByOrNull { kotlin.math.abs(it.first - rate) }!!.first) {
@@ -863,113 +864,4 @@ private fun RoleEditor(code: String, onReset: () -> Unit) {
         android.widget.Toast.makeText(ctx, "已恢復「${Roles.def(code).label}」的預設", android.widget.Toast.LENGTH_SHORT).show()
         onReset()
     }) { Text("恢復這個角色的預設") }
-}
-
-
-/** 語音引擎:手機內建 / 生動語音(Kokoro,離線,需下載模型)。 */
-@Composable
-private fun VoiceEngineSection(onChanged: () -> Unit) {
-    val ctx = LocalContext.current
-    var engine by remember { mutableStateOf(AppSettings.voiceEngine(ctx)) }
-    var ready by remember { mutableStateOf(Kokoro.isReady(ctx)) }
-    var progress by remember { mutableStateOf(if (Kokoro.downloading || Kokoro.pendingDownload(ctx)) 0 else -1) }
-    var msg by remember { mutableStateOf("") }
-    // 上次下載到一半離開這頁:回來時接著看進度(下載本身由系統在背景繼續)
-    LaunchedEffect(Unit) {
-        if (Kokoro.pendingDownload(ctx)) {
-            Kokoro.download(ctx, { progress = it }) { ok, m ->
-                progress = -1
-                ready = ok
-                msg = if (ok) "" else "($m,可以再試一次)"
-                onChanged()
-            }
-        }
-    }
-    Text("鬧鐘語音", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
-    Chips(listOf("system" to "手機內建", "kokoro" to "生動語音(離線)"), engine) {
-        engine = it
-        AppSettings.setVoiceEngine(ctx, it)
-        onChanged()
-    }
-    if (engine == "kokoro") {
-        when {
-            ready -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "已下載,鬧鐘會用生動語音念;萬一失敗會自動改用手機內建。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    Kokoro.remove(ctx)
-                    ready = false
-                    engine = "system"
-                    onChanged()
-                }) { Text("刪除模型") }
-            }
-            progress >= 0 -> {
-                androidx.compose.material3.LinearProgressIndicator(
-                    progress = { progress / 100f },
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                )
-                Text("下載中 $progress%(約 147MB,建議用 Wi-Fi;離開這頁或關螢幕也會在背景繼續,通知列看得到進度)", style = MaterialTheme.typography.bodySmall)
-            }
-            else -> {
-                Text(
-                    "開源的 Kokoro 語音,比手機內建自然,完全離線。第一次要下載約 147MB 的模型。$msg",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = {
-                    progress = 0
-                    msg = ""
-                    Kokoro.download(ctx, { progress = it }) { ok, m ->
-                        progress = -1
-                        ready = ok
-                        msg = if (ok) "" else "($m,可以再試一次)"
-                        onChanged()
-                    }
-                }) { Text("下載生動語音") }
-            }
-        }
-    }
-}
-
-/** 生動語音的聲音:女聲/男聲,一個一個換著聽。 */
-@Composable
-private fun KokoroVoicePicker(code: String) {
-    val ctx = LocalContext.current
-    var sid by remember { mutableStateOf(Roles.kokoroVoice(ctx, code)) }
-    val female = KokoroVoices.FEMALE
-    val male = KokoroVoices.MALE
-    val isMale = sid in male
-    val list = if (isMale) male else female
-    if (list.isEmpty()) return
-    val idx = list.indexOf(sid).coerceAtLeast(0)
-    var playing by remember { mutableStateOf(false) }
-    fun set(v: Int) {
-        sid = v
-        Roles.setKokoroVoice(ctx, code, v)
-    }
-    fun play() {
-        playing = true
-        Kokoro.preview(ctx, AlarmSpeech.sample(ctx, 0, code), sid, Roles.rate(ctx, code)) { ok ->
-            playing = false
-            if (!ok) android.widget.Toast.makeText(ctx, "合成失敗,請稍後再試", android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-    Chips(listOf(false to "女聲", true to "男聲"), isMale) { m ->
-        set((if (m) male else female).firstOrNull() ?: 0)
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        TextButton(onClick = { set(list[(idx - 1 + list.size) % list.size]) }) { Text("‹ 上一個") }
-        Text(
-            "${if (isMale) "男聲" else "女聲"} ${idx + 1}/${list.size}",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-        TextButton(onClick = { set(list[(idx + 1) % list.size]) }) { Text("下一個 ›") }
-    }
-    Button(enabled = !playing, onClick = { play() }) { Text(if (playing) "合成中…" else "試聽這個聲音") }
 }

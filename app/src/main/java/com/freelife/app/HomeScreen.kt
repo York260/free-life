@@ -102,7 +102,10 @@ fun HomeScreen(
     var selected by remember { mutableStateOf(LocalDate.now()) }
     var editing by remember { mutableStateOf<Reminder?>(null) }
     var showQuick by remember { mutableStateOf(false) }
+    var showDnd by remember { mutableStateOf(false) }
+    var dndVersion by remember { mutableStateOf(0) }
     var now by remember { mutableStateOf(LocalDateTime.now()) }
+    val hctx = androidx.compose.ui.platform.LocalContext.current
 
     // 每半分鐘更新「現在」,時間軸上的線才會跟著走
     DisposableEffect(Unit) {
@@ -173,12 +176,48 @@ fun HomeScreen(
                 softWrap = false,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                HeaderAction(Glyph.BELL_OFF, "", 0) { showDnd = true }
                 HeaderAction(Glyph.CHECKLIST, "小任務", quick.count { !it.done }) { showQuick = true }
                 HeaderAction(Glyph.SUN, "簡報", 0, onOpenBriefing)
             }
         }
 
         ModeSwitch(selected = mode, onSelect = { mode = it })
+
+        if (showDnd) {
+            DndDialog {
+                showDnd = false
+                dndVersion++
+            }
+        }
+        val dndState = remember(now, dndVersion, reminders.size) { Dnd.current(hctx) }
+        if (dndState.level > Dnd.NONE) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .clickable { showDnd = true }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppIcon(Glyph.BELL_OFF, MaterialTheme.colorScheme.primary, 18.dp)
+                Text(
+                    "${Dnd.label(dndState.level)}到 ${Dnd.hm(dndState.until)}" +
+                        if (dndState.manual) "" else " · ${dndState.reason}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp),
+                )
+                if (dndState.manual) {
+                    Text("結束", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
 
         Row(
             modifier = Modifier
@@ -692,14 +731,16 @@ private fun HeaderAction(glyph: Glyph, label: String, badge: Int, onClick: () ->
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 AppIcon(glyph, scheme.primary, 18.dp)
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = scheme.onSurface,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
+                if (label.isNotEmpty()) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = scheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
             }
         }
         if (badge > 0) {

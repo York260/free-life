@@ -15,6 +15,8 @@ data class RoleDef(
     val rate: Float,
     val lines: List<String>,
     val style: String,
+    /** 每一段另外的說法:沒改過台詞時,鬧鐘每次隨機挑一種,聽起來不會那麼制式。 */
+    val variants: List<List<String>> = listOf(emptyList(), emptyList(), emptyList()),
 )
 
 object Roles {
@@ -38,6 +40,11 @@ object Roles {
                 "{稱呼},容我再提醒一次,{事件}{時間}就要開始了{地點}。",
                 "{稱呼},恕我直言,再不動身就要遲到了。{事件},{時間}。",
             ),
+            variants = listOf(
+                listOf("{稱呼},提醒您,{時間}要{事件}{地點}。", "{稱呼},{事件}{時間},先跟您說一聲{地點}。"),
+                listOf("{稱呼},{事件}快到了,{時間},該準備了。", "{稱呼},時間差不多了,{事件}{時間}{地點}。"),
+                listOf("{稱呼},這是最後一次提醒,{事件}{時間},請立刻出發。", "{稱呼},再拖下去恐怕不太妙,{事件},{時間}。"),
+            ),
             style = "個性像電影《鋼鐵人》裡的 AI 管家賈維斯:語氣沉穩有禮、反應敏捷、效率第一," +
                 "帶一點英式的乾冷幽默與輕描淡寫的調侃(例如對使用者忘東忘西的習慣淡淡吐槽一句),但永遠站在使用者這邊、可靠、不說教。" +
                 "幽默點到為止,每次回覆最多一句,事情緊急或使用者焦慮時收起玩笑。",
@@ -54,6 +61,11 @@ object Roles {
                 "{稱呼}!「{事件}」迫在眉睫,{時間},速速動身!",
                 "{稱呼},再不啟程,江湖恐怕要笑話你了!「{事件}」,{時間},快走!",
             ),
+            variants = listOf(
+                listOf("{稱呼},江湖傳信:{時間}有「{事件}」{地點}。", "{稱呼},{時間}「{事件}」,莫要忘了{地點}。"),
+                listOf("{稱呼},時辰將至,「{事件}」{時間},該動身了。", "{稱呼},快馬加鞭,「{事件}」{時間}{地點}。"),
+                listOf("{稱呼}!十萬火急,「{事件}」{時間},再不走就來不及了!", "{稱呼},師父說了,遲到要罰抄心法。「{事件}」,{時間}!"),
+            ),
             style = "說話像武俠小說裡機靈的書僮:用半文半白的古風用語(例如「少俠」「時辰」「切莫」「速速」)," +
                 "帶一點江湖味的幽默,但資訊要清楚,不要艱澀到看不懂。",
         ),
@@ -68,6 +80,11 @@ object Roles {
                 "插播一則快訊:{時間},「{事件}」{地點}{結束}。",
                 "最新消息,「{事件}」即將在{時間}登場,請當事人盡速就位{地點}。",
                 "緊急插播!「{事件}」{時間},當事人至今仍未出發,本台持續追蹤!",
+            ),
+            variants = listOf(
+                listOf("為您報導,{時間}將有「{事件}」{地點}。", "今日行程快報:{時間},「{事件}」{地點}。"),
+                listOf("記者最新回報,「{事件}」{時間}就要開始,請準備出發{地點}。", "持續關注:「{事件}」倒數中,{時間}登場。"),
+                listOf("本台獨家:「{事件}」{時間},當事人仍未動身,情況危急!", "現場連線,「{事件}」即將開始,請當事人立刻出發!"),
             ),
             style = "說話像電視新聞主播播報:字正腔圓、條理清楚,常用「為您報導」「插播一則快訊」「最新消息」之類的播報口吻," +
                 "偶爾來點新聞梗,但內容要短。",
@@ -84,6 +101,11 @@ object Roles {
                 "{稱呼}!聽到沒有?「{事件}」{時間},動作快!",
                 "{稱呼}!還在拖?給我站起來!「{事件}」,{時間},出發!",
             ),
+            variants = listOf(
+                listOf("{稱呼}注意!{時間}「{事件}」{地點},先把東西準備好。", "報告{稱呼},{時間}有「{事件}」{地點}。"),
+                listOf("{稱呼}!「{事件}」{時間},還不動作?", "{稱呼}!全員集合,「{事件}」{時間}{地點}!"),
+                listOf("{稱呼}!最後一次!「{事件}」,{時間},立刻出發!", "{稱呼}!再不動就加罰!「{事件}」{時間}!"),
+            ),
             style = "說話像嚴格的軍中教官:口令式、簡短有力,會喊「注意」「動作快」,推使用者立刻行動;" +
                 "嚴格但不羞辱人、不罵髒話。",
         ),
@@ -98,6 +120,11 @@ object Roles {
                 "{稱呼}~{時間}要「{事件}」喔{地點},人家有好好提醒你了喔。",
                 "欸~{稱呼}!「{事件}」{時間}啦,你該不會又忘了吧?真是拿你沒辦法耶。",
                 "{稱呼}笨蛋!再不去就要遲到了啦!「{事件}」,{時間}!快點快點!",
+            ),
+            variants = listOf(
+                listOf("{稱呼},{時間}有「{事件}」喔{地點},才不是特地提醒你的呢。", "哼,{稱呼},{時間}「{事件}」{地點},記好了沒?"),
+                listOf("{稱呼}~還在發呆?「{事件}」{時間}了啦!", "喂喂,{稱呼},「{事件}」快到了,不准裝沒聽到喔。"),
+                listOf("{稱呼}!人家都講三次了!「{事件}」,{時間},快去啦!", "真是的,{稱呼}再不出門,人家就不理你了!「{事件}」{時間}!"),
             ),
             style = "說話像愛捉弄人的小惡魔妹妹:稱呼對方「歐尼醬」,語氣俏皮、愛吐槽、帶點傲嬌(嘴上嫌棄但其實很關心)," +
                 "但內容要清楚實用;保持可愛,不涉及任何曖昧或性暗示。",
@@ -121,6 +148,14 @@ object Roles {
     fun line(ctx: Context, code: String, level: Int): String =
         (prefs(ctx).getString("${code}_line$level", null) ?: def(code).lines[level]).ifBlank { def(code).lines[level] }
 
+    /** 鬧鐘實際要念的那句:改過就用你的;沒改過就從預設和其他說法裡隨機挑一種。 */
+    fun spokenLine(ctx: Context, code: String, level: Int): String {
+        val custom = prefs(ctx).getString("${code}_line$level", null)
+        if (!custom.isNullOrBlank() && custom != def(code).lines[level]) return custom
+        val pool = listOf(def(code).lines[level]) + def(code).variants.getOrElse(level) { emptyList() }
+        return pool.random()
+    }
+
     fun setLine(ctx: Context, code: String, level: Int, v: String) =
         prefs(ctx).edit().putString("${code}_line$level", v).apply()
 
@@ -133,28 +168,11 @@ object Roles {
     fun rate(ctx: Context, code: String): Float = prefs(ctx).getFloat("${code}_rate", def(code).rate)
     fun setRate(ctx: Context, code: String, v: Float) = prefs(ctx).edit().putFloat("${code}_rate", v).apply()
 
-    /** 生動語音(Kokoro)的聲音編號;預設:賈維斯、武俠、教官用男聲,主播、妹妹用女聲。 */
-    fun kokoroVoice(ctx: Context, code: String): Int {
-        val saved = prefs(ctx).getInt("${code}_kvoice", -1)
-        if (saved >= 0) return saved
-        val f = KokoroVoices.FEMALE
-        val m = KokoroVoices.MALE
-        fun pick(list: List<Int>, i: Int) = list.getOrNull(i) ?: list.firstOrNull() ?: 0
-        return when (code) {
-            "wuxia" -> pick(m, 1)
-            "anchor" -> pick(f, 0)
-            "drill" -> pick(m, 2)
-            "imouto" -> pick(f, 1)
-            else -> pick(m, 0)
-        }
-    }
-
-    fun setKokoroVoice(ctx: Context, code: String, v: Int) = prefs(ctx).edit().putInt("${code}_kvoice", v).apply()
 
     /** 把這個角色的修改全部清掉,回到預設。 */
     fun reset(ctx: Context, code: String) {
         val e = prefs(ctx).edit()
-        listOf("address", "line0", "line1", "line2", "voice", "pitch", "rate", "kvoice").forEach { e.remove("${code}_$it") }
+        listOf("address", "line0", "line1", "line2", "voice", "pitch", "rate").forEach { e.remove("${code}_$it") }
         e.apply()
     }
 

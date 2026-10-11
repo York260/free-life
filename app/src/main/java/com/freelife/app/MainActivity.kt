@@ -117,23 +117,13 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null && intent.action == VoiceEntry.ACTION_TYPE) typeRequested = true
         BriefingScheduler.schedule(this)
         DailyJobs.schedule(this)
+        Dnd.apply(this)
         reviewRequested = intent.getBooleanExtra(DailyJobs.EXTRA_OPEN_REVIEW, false)
         if (savedInstanceState == null) readShare(intent)
         // 雲端模擬器自動測試用:adb shell am start ... --ez probe true
         if (savedInstanceState == null && intent.getBooleanExtra("probe", false)) VoiceProbe.run(this)
-        // 雲端模擬器測生動語音:下載模型 → 切換 → 8 秒後響一次
-        if (savedInstanceState == null && intent.getBooleanExtra("probeKokoro", false)) {
-            val app = applicationContext
-            SpeechDiag.add(app, "Kokoro 測試:開始下載")
-            Kokoro.download(app, {}) { ok, msg ->
-                SpeechDiag.add(app, "Kokoro 下載:${if (ok) "成功" else "失敗"} $msg")
-                if (ok) {
-                    AppSettings.setVoiceEngine(app, "kokoro")
-                    val at = System.currentTimeMillis() + 8_000L
-                    ReminderOps.add(app, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
-                }
-            }
-        }
+        // 不再使用 Kokoro 生動語音:清掉之前下載的模型(約 300MB)
+        cleanupKokoro()
         if (savedInstanceState == null && intent.getBooleanExtra("probeAlarm", false)) {
             val at = System.currentTimeMillis() + 8_000L
             ReminderOps.add(this, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
@@ -398,7 +388,7 @@ class MainActivity : ComponentActivity() {
         refreshReminders()
         refreshPermissions()
         checkClass(r)
-        KokoroCache.prerender(this, r)
+        Dnd.apply(this)
     }
 
     private fun updateReminder(r: Reminder) {
@@ -408,7 +398,19 @@ class MainActivity : ComponentActivity() {
         refreshReminders()
         refreshPermissions()
         checkClass(r)
-        KokoroCache.prerender(this, r)
+        Dnd.apply(this)
+    }
+
+    private fun cleanupKokoro() {
+        Thread {
+            try {
+                java.io.File(filesDir, "kokoro").deleteRecursively()
+                java.io.File(filesDir, "kokoro_cache").deleteRecursively()
+                getExternalFilesDir(null)?.let { java.io.File(it, "kokoro-zh.zip").delete() }
+                getSharedPreferences("settings", MODE_PRIVATE).edit().remove("voice_engine").apply()
+            } catch (ignored: Exception) {
+            }
+        }.start()
     }
 
     /** 上課視同開會:提醒會在上課中響,就跳出警告。 */
@@ -445,6 +447,7 @@ class MainActivity : ComponentActivity() {
         AlarmNotifier.cancel(this, r.id)
         ReminderStore.delete(this, r.id)
         refreshReminders()
+        Dnd.apply(this)
     }
 
     private fun testAlarm() {

@@ -95,6 +95,7 @@ fun EditReminderDialog(
     var repeat by remember(r.id) { mutableStateOf(r.repeat) }
     var lead by remember(r.id) { mutableStateOf(r.leadMin) }
     var skipHol by remember(r.id) { mutableStateOf(r.skipHolidays) }
+    var dnd by remember(r.id) { mutableStateOf(r.dnd) }
     var error by remember(r.id) { mutableStateOf<String?>(null) }
 
     fun pickDate(current: LocalDateTime, onPicked: (LocalDateTime) -> Unit) {
@@ -216,6 +217,15 @@ fun EditReminderDialog(
                         Switch(checked = skipHol, onCheckedChange = { skipHol = it })
                     }
                 }
+                if (hasEnd) {
+                    Text(
+                        text = "進行中勿擾",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    Chips(listOf("" to "預設") + Dnd.CHOICES, dnd) { dnd = it }
+                }
                 if (ring) {
 
                     Text(
@@ -291,6 +301,7 @@ fun EditReminderDialog(
                             repeat = repeat,
                             leadMin = lead,
                             skipHolidays = repeat.isNotEmpty() && skipHol,
+                            dnd = if (endMs != null) dnd else "",
                         ),
                     )
                 }

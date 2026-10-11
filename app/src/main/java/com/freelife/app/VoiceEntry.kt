@@ -124,6 +124,14 @@ class VoiceWidget : AppWidgetProvider() {
             v.setOnClickPendingIntent(R.id.widget_root, open)
             v.setOnClickPendingIntent(R.id.widget_type, type)
             v.setOnClickPendingIntent(R.id.widget_mic, VoiceEntry.pending(ctx))
+            v.setOnClickPendingIntent(
+                R.id.widget_dnd,
+                PendingIntent.getActivity(
+                    ctx, 7004,
+                    Intent(ctx, DndActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
             for (i in 0 until ZONES) {
                 v.setOnClickPendingIntent(
                     ZONE_IDS[i],
@@ -173,6 +181,10 @@ class VoiceWidget : AppWidgetProvider() {
                 }
                 v.setTextViewText(R.id.widget_label, "下一件 · $rel · 今天還有 $left 件".replace(" ·  · ", " · "))
                 v.setTextViewText(R.id.widget_next, day + upcoming.start.toLocalTime().toString().take(5) + "  " + upcoming.r.title)
+            }
+            val dnd = Dnd.current(ctx, nowMs)
+            if (dnd.level > Dnd.NONE) {
+                v.setTextViewText(R.id.widget_label, "${Dnd.label(dnd.level)}到 ${Dnd.hm(dnd.until)}")
             }
             v.setImageViewBitmap(R.id.widget_strip, stripBitmap(todayItems, LocalDateTime.now()))
             val p = ctx.getSharedPreferences("widget", Context.MODE_PRIVATE)

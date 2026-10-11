@@ -116,6 +116,42 @@ object AlarmScheduler {
 object AlarmNotifier {
 
     /** 建立兩個頻道:安靜頻道(平常用,聲音由 AlarmService 自己播)與帶聲音的備援頻道。 */
+    /** 勿擾中被擋下的提醒:安靜的通知,按鈕「結束後提醒」或「完成」。 */
+    fun showBlocked(ctx: Context, r: Reminder, st: Dnd.State) {
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel("dnd_blocked") == null) {
+            nm.createNotificationChannel(
+                NotificationChannel("dnd_blocked", "勿擾中被擋下的提醒", NotificationManager.IMPORTANCE_LOW).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                },
+            )
+        }
+        val code = codeOf(r.id)
+        val later = PendingIntent.getBroadcast(
+            ctx, code + 3,
+            Intent(ctx, ActionReceiver::class.java).setAction(ACTION_SNOOZE)
+                .putExtra(EXTRA_ID, r.id).putExtra(EXTRA_SNOOZE_UNTIL, st.until),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val done = PendingIntent.getBroadcast(
+            ctx, code + 4,
+            Intent(ctx, ActionReceiver::class.java).setAction(ACTION_DONE).putExtra(EXTRA_ID, r.id),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val why = if (st.manual) Dnd.label(st.level) else "「${st.reason}」進行中"
+        val n = NotificationCompat.Builder(ctx, "dnd_blocked")
+            .setSmallIcon(R.drawable.ic_stat_bell)
+            .setContentTitle("勿擾中:${r.title}")
+            .setContentText("$why,到 ${Dnd.hm(st.until)}。先不響。")
+            .setSilent(true)
+            .setAutoCancel(true)
+            .addAction(0, "${Dnd.hm(st.until)} 結束後提醒", later)
+            .addAction(0, "完成", done)
+            .build()
+        nm.notify(code, n)
+    }
+
     fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(QUIET_CHANNEL_ID) == null) {
@@ -431,57 +467,12 @@ class AlarmService : Service() {
         speechActive = true
         handler.removeCallbacks(speechFallback)
         handler.postDelayed(speechFallback, 9000L)
-        if (Kokoro.active(this)) {
-            trySynthKokoro()
-            return
-        }
         val engines = SpeechEngines.candidates(this)
         diag("引擎順序:" + engines.joinToString("→") { SpeechEngines.label(it) })
         trySynth(engines, 0)
     }
 
-    /** 生動語音(Kokoro,離線):先合成第一段馬上念,後面兩段背景準備;失敗就改用手機內建語音。 */
-    private fun trySynthKokoro() {
-        val sid = Kokoro.voiceOf(this)
-        val speed = AppSettings.ttsRate(this)
-        diag("用生動語音,聲音 #$sid")
-        kokoroLevel(startLevel, sid, speed) { ok, note ->
-            if (!speechActive) return@kokoroLevel
-            diag(note)
-            if (ok) {
-                levelReady[startLevel] = true
-                playLevel(startLevel)
-                kokoroRest(startLevel + 1, sid, speed)
-            } else {
-                diag("改用手機內建語音")
-                trySynth(SpeechEngines.candidates(this), 0)
-            }
-        }
-    }
 
-    /** 有事先做好的音檔就直接用,沒有才當場合成。 */
-    private fun kokoroLevel(lv: Int, sid: Int, speed: Float, done: (Boolean, String) -> Unit) {
-        val cached = KokoroCache.file(this, speechTexts[lv], sid, speed)
-        if (cached.exists() && cached.length() > 1000) {
-            try {
-                cached.copyTo(levelFile(lv), overwrite = true)
-                done(true, "${Roles.LEVEL_NAMES[lv]}:用事先做好的音檔")
-                return
-            } catch (ignored: Exception) {
-            }
-        }
-        Kokoro.synth(this, speechTexts[lv], sid, speed, levelFile(lv), done)
-    }
-
-    private fun kokoroRest(lv: Int, sid: Int, speed: Float) {
-        if (!speechActive || lv > 2) return
-        kokoroLevel(lv, sid, speed) { ok, _ ->
-            if (!speechActive) return@kokoroLevel
-            if (ok) levelReady[lv] = true
-            diag("${Roles.LEVEL_NAMES[lv]}:${if (ok) "準備好了" else "合成失敗,沿用前一段"}")
-            kokoroRest(lv + 1, sid, speed)
-        }
-    }
 
     private fun trySynth(engines: List<String?>, i: Int, attempt: Int = 0) {
         if (!speechActive) return
@@ -926,13 +917,13 @@ class AlarmReceiver : BroadcastReceiver() {
             ringId = clone.id
         }
         try {
-            // 人正在開會(別的排程進行中)就先靜音問使用者;設定裡可以關掉
-            val busy = if (AppSettings.conflictAsk(context)) {
-                Conflicts.inProgress(ReminderStore.load(context), r, System.currentTimeMillis())
-            } else {
-                null
+            // 勿擾中(手動,或上課/開會中):不響,改成一則靜音通知,可選「結束後再提醒」
+            val st = Dnd.current(context, System.currentTimeMillis(), exclude = ringId)
+            if (st.level > Dnd.NONE) {
+                AlarmNotifier.showBlocked(context, r, st)
+                return
             }
-            AlarmService.start(context, ringId, busy?.id ?: -1L)
+            AlarmService.start(context, ringId, -1L)
         } catch (e: Exception) {
             CrashLog.save(context, e)
             AlarmNotifier.show(context, r)
@@ -968,6 +959,7 @@ class BootReceiver : BroadcastReceiver() {
         AlarmScheduler.rescheduleAll(context)
         BriefingScheduler.schedule(context)
         DailyJobs.schedule(context)
+        Dnd.apply(context)
     }
 }
 
@@ -993,7 +985,7 @@ object AlarmSpeech {
         val addr = Roles.address(ctx, code)
         val w = whenText(r, nowMs)
         val end = r.endAt?.let { clock(java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()) }
-        return (0..2).map { lv -> Roles.fill(Roles.line(ctx, code, lv), addr, w, r.title.trim(), r.location.trim(), end) }
+        return (0..2).map { lv -> Roles.fill(Roles.spokenLine(ctx, code, lv), addr, w, r.title.trim(), r.location.trim(), end) }
     }
 
     /** 第一段(相容舊呼叫)。 */
