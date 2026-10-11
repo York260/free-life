@@ -150,6 +150,7 @@ object AlarmNotifier {
             .addAction(0, "完成", done)
             .build()
         nm.notify(code, n)
+        SpeechDiag.add(ctx, "勿擾擋下:${r.title}($why,到 ${Dnd.hm(st.until)})")
     }
 
     fun ensureChannel(ctx: Context) {

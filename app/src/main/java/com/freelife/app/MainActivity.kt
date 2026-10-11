@@ -124,6 +124,13 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null && intent.getBooleanExtra("probe", false)) VoiceProbe.run(this)
         // 不再使用 Kokoro 生動語音:清掉之前下載的模型(約 300MB)
         cleanupKokoro()
+        // 雲端模擬器測勿擾:開普通勿擾 → 8 秒後的鬧鐘應該被擋下
+        if (savedInstanceState == null && intent.getBooleanExtra("probeDnd", false)) {
+            Dnd.startManual(this, Dnd.NORMAL, System.currentTimeMillis() + 3_600_000L)
+            SpeechDiag.add(this, "勿擾測試:${Dnd.label(Dnd.current(this).level)}到 ${Dnd.hm(Dnd.current(this).until)}")
+            val at = System.currentTimeMillis() + 8_000L
+            ReminderOps.add(this, Reminder(id = Assistant.newId(), title = "勿擾測試", triggerAt = at, startAt = at))
+        }
         if (savedInstanceState == null && intent.getBooleanExtra("probeAlarm", false)) {
             val at = System.currentTimeMillis() + 8_000L
             ReminderOps.add(this, Reminder(id = Assistant.newId(), title = "語音測試", triggerAt = at, startAt = at))
