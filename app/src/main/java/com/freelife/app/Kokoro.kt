@@ -44,8 +44,14 @@ object Kokoro {
     /** 還有沒完成的下載(例如上次下載到一半就離開這頁)。 */
     fun pendingDownload(ctx: Context): Boolean = prefs(ctx).getLong("dl_id", -1L) >= 0 && !isReady(ctx)
 
+    // 設定頁重開時換成新的畫面接收進度
+    @Volatile private var cbProgress: (Int) -> Unit = {}
+    @Volatile private var cbDone: (Boolean, String) -> Unit = { _, _ -> }
+
     fun download(ctx: Context, onProgress: (Int) -> Unit, onDone: (Boolean, String) -> Unit) {
         val app = ctx.applicationContext
+        cbProgress = onProgress
+        cbDone = onDone
         val dm = app.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
         var id = prefs(app).getLong("dl_id", -1L)
         if (id < 0 || status(dm, id) == null) {
@@ -59,14 +65,8 @@ object Kokoro {
             id = dm.enqueue(req)
             prefs(app).edit().putLong("dl_id", id).apply()
         }
-        cbProgress = onProgress
-        cbDone = onDone
         watch(app, dm, id)
     }
-
-    // 設定頁重開時換成新的畫面接收進度
-    @Volatile private var cbProgress: (Int) -> Unit = {}
-    @Volatile private var cbDone: (Boolean, String) -> Unit = { _, _ -> }
 
     /** 回傳 (狀態, 已下載, 總大小, 原因);查不到回傳 null。 */
     private fun status(dm: android.app.DownloadManager, id: Long): LongArray? {
